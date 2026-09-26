@@ -1,0 +1,29 @@
+# File and browser suites for dsh-session-multiselect.
+#
+# The plugin ships as hand-written browser code with no build step, so CI is
+# only about proving the shipped artifact: the Node suites drive lib/client.js
+# against DOM and React stand-ins, and the browser suite drives it against real
+# React 18 UMD and a real layout engine in headless Chrome (preinstalled on the
+# GitHub-hosted runners). `npm install` provides the UMD builds the browser
+# suite serves; nothing else is needed.
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: npm ci --no-audit --no-fund
+      - name: File suites (helpers, panel mount, header injection)
+        run: npm run test:files
+      - name: Browser suite (real React, real layout, real click)
+        run: npm run test:browser

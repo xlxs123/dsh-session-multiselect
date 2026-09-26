@@ -1,0 +1,15 @@
+# dsh-session-multiselect bundle patch
+#
+# This plugin is browser-only: everything it does runs in the Web client against
+# the services the official bundles already provide (sessions, slots, locale,
+# client store). The entry below exists so the bundle has a real composition row
+# and its package stays resolvable from the profile tree; it deliberately
+# declares no service, no route, and no tool, and its `apply` is a no-op.
+#
+# The client half is mounted by the client module system, not by this row: the
+# host scans `dsh.client` in this package's manifest and serves the bundle
+# declared by `exports["./client"]` at /plugins/dsh-session-multiselect/client.js,
+# which the `__DSH_BOOT__` graph injects into the page.
+- insert:
+    - id: session-multiselect
+      name: 'dsh-session-multiselect'

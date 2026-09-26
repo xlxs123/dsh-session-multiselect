@@ -1,0 +1,80 @@
+{
+  "name": "dsh-session-multiselect",
+  "version": "0.1.0",
+  "description": "DSH web plugin: a multi-select panel for conversations — checkbox list grouped by workspace, search, select-all/invert, Shift range select, then batch delete / fork / export / summarize / unread / pin.",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/xlxs123/dsh-session-multiselect.git"
+  },
+  "homepage": "https://github.com/xlxs123/dsh-session-multiselect#readme",
+  "bugs": {
+    "url": "https://github.com/xlxs123/dsh-session-multiselect/issues"
+  },
+  "author": "xlxs123",
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "dsh-desktop",
+    "multi-select",
+    "batch-operations"
+  ],
+  "main": "lib/index.js",
+  "types": "lib/types/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/types/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./client": {
+      "default": "./lib/client.js"
+    },
+    "./src/*": "./src/*",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-renderer",
+        "@deepseek-ai/dsh-client-ui-slots",
+        "@deepseek-ai/dsh-client-ui-primitives",
+        "@deepseek-ai/dsh-client-store",
+        "@deepseek-ai/dsh-client-locale"
+      ],
+      "platform": "web"
+    }
+  },
+  "files": [
+    "lib/index.js",
+    "lib/client.js",
+    "lib/types/**/*.d.ts",
+    "src",
+    "tests",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "node --test",
+    "test:files": "node --test tests/internals.test.mjs tests/mount.test.mjs tests/inline.test.mjs",
+    "test:browser": "node tests/browser/harness.mjs",
+    "diag": "node tests/browser/read-diag.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.2",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
+  },
+  "devDependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  }
+}

@@ -1,0 +1,310 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8" />
+<title>session-multiselect browser smoke</title>
+<!--
+  Real-browser smoke test for the header injection.
+
+  Node tests drive the bundle against DOM and React stand-ins; this page drives
+  it against the real things: real React 18 UMD, a real layout engine, and the
+  header CSS copied from @deepseek-ai/dsh-client-ui-workspace. It answers the
+  questions a stand-in cannot: where the injected button actually lands, what
+  element is on top of it, and whether a real click opens the panel.
+
+  Run (headless, verdict is dumped into <pre id="verdict">):
+    chrome --headless=new --disable-gpu --allow-file-access-from-files \
+      --virtual-time-budget=8000 --dump-dom tests/browser/click.html
+-->
+<style>
+  /* Copied from the workspace plugin's WorkspaceBrowser.module.css, so the
+     layout the plugin meets in the app is the layout it meets here. */
+  body { margin: 0; font: 13px/1.4 system-ui, sans-serif; background: #f8f8f6; }
+  /* The app ships a base reset; without it the user-agent button box would make
+     the harness's numbers differ from the app's for reasons unrelated to the
+     plugin (the row gap is 4px in both). */
+  button { border: 0; padding: 0; margin: 0; background: transparent; font: inherit; color: inherit; }
+  #sidebar { width: 260px; background: #f1f1ef; }
+  .sectionHeader { height: 36px; display: flex; justify-content: flex-end; align-items: center; gap: 4px; padding-left: 4px; overflow: hidden; }
+  .sectionLabel { flex: none; line-height: 20px; overflow: hidden; font-size: 12px; color: #6b6b6b; }
+  .searchSlot { box-sizing: border-box; min-width: 0; max-width: 28px; flex: 1; align-items: center; margin-left: auto; padding-left: 0; display: flex; }
+  .search { box-sizing: border-box; cursor: text; width: 100%; height: 28px; flex: none; align-items: center; gap: 0; margin: 0; padding: 0; display: flex; overflow: hidden; border-radius: 50%; background: transparent; border: none; }
+  .searchButton { width: 28px; height: 30px; background: transparent; border: none; cursor: pointer; }
+  .searchInput { opacity: 0; pointer-events: none; width: 0; min-width: 0; flex: 1; background: transparent; border: none; outline: none; }
+  .headerActions { max-width: 60px; flex: none; align-items: center; gap: 4px; display: flex; overflow: hidden; }
+  .headerActions button { width: 28px; height: 28px; background: transparent; border: none; }
+  #verdict { margin: 12px; padding: 10px; background: #fff; border: 1px solid #ddd; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<div id="sidebar">
+  <div class="sectionHeader">
+    <span class="sectionLabel">工作区</span>
+    <div class="searchSlot">
+      <div class="search">
+        <button type="button" class="searchButton" aria-label="搜索会话"></button>
+        <input type="text" class="searchInput" placeholder="搜索会话…" />
+      </div>
+    </div>
+    <div class="headerActions">
+      <button type="button" aria-label="新建会话"></button>
+      <button type="button" aria-label="更多"></button>
+    </div>
+  </div>
+</div>
+
+<!-- Real React 18 UMD builds, straight from the desktop app's own dependency tree.
+     Served by tests/browser/harness.mjs, which also serves the bundle under test
+     and the plugin's lib/ directory. -->
+<script src="/react/react.development.js"></script>
+<script src="/react-dom/react-dom.development.js"></script>
+<!-- The bundle under test registers itself through this loader hook. -->
+<script>
+  window.__ModuleLoader__ = { load: (registration) => { window.__smokeRegistration = registration; } };
+</script>
+<script src="/plugin/lib/client.js"></script>
+<script>
+const results = [];
+const record = (key, value) => { results.push([key, value]); };
+const errors = [];
+window.addEventListener('error', (event) => errors.push(String(event.message)));
+const nativeError = console.error;
+console.error = (...args) => { errors.push(args.map(String).join(' ')); nativeError(...args); };
+const h = React.createElement;
+
+// --- module table stand-ins -------------------------------------------------
+
+/** Faithful-enough jsx runtime: the real one is createElement plus folding. */
+function makeJsxRuntime() {
+  const build = (type, props) => {
+    const { children, ...rest } = props ?? {};
+    const kids = children === undefined ? [] : Array.isArray(children) ? children : [children];
+    return React.createElement(type, rest, ...kids);
+  };
+  return { jsx: build, jsxs: build, Fragment: React.Fragment };
+}
+
+function makeSnapshotStore(init) {
+  let state = init;
+  const listeners = new Set();
+  const notify = () => { for (const fn of [...listeners]) fn(); };
+  return {
+    getSnapshot: () => state,
+    subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn); },
+    set(next) { state = next; notify(); },
+    update(mutate) { const draft = JSON.parse(JSON.stringify(state)); mutate(draft); state = draft; notify(); }
+  };
+}
+
+const clientStore = {
+  defineStore: (decl) => ({
+    create: () => {
+      const store = makeSnapshotStore(decl.init());
+      const actions = {};
+      for (const key of Object.keys(decl.actions)) {
+        actions[key] = (...params) => store.update((draft) => decl.actions[key](draft, ...params));
+      }
+      return { actions, getSnapshot: store.getSnapshot, subscribe: store.subscribe, store };
+    }
+  }),
+  createSnapshotStore: (init) => makeSnapshotStore(init)
+};
+
+/** Tooltip mirrors the real one: clones the anchor, adds no wrapper element. */
+function Tooltip({ label, children }) {
+  const ref = React.useRef(null);
+  return React.cloneElement(children, {
+    ref,
+    onMouseEnter() {}, onMouseLeave() {}, onFocus() {}, onBlur() {}
+  });
+}
+
+/** Modal mirrors the real one: null when closed, portal to body when open, and
+    the mask closes it on click. */
+function Modal({ open, onClose, title, children }) {
+  if (!open) return null;
+  return ReactDOM.createPortal(
+    h('div', { 'data-fake-modal': 'true' },
+      h('div', { 'data-fake-mask': 'true', onClick: onClose }),
+      h('h2', null, title),
+      h('div', { 'data-fake-modal-body': 'true' }, children)),
+    document.body
+  );
+}
+
+function Icon(props) { return h('svg', { width: props.size ?? 16, height: props.size ?? 16 }); }
+
+const primitives = {
+  Modal,
+  Tooltip,
+  Button: (props) => h('button', { type: 'button' }, props.children),
+  Input: (props) => h('input', { placeholder: props.placeholder }),
+  IconSearchOutline16: Icon,
+  IconChecklistOutline14: Icon,
+  IconLoadingOutline16: Icon
+};
+
+// --- fake plugin context ----------------------------------------------------
+
+// The controller hands the UI a NORMALIZED snapshot — ids + byId + current +
+// phase — not a flattened items array. The harness uses the real shape, so a
+// panel that listed nothing would fail here. The rows span three workspaces, so
+// the grouping has something real to lay out: two sessions in one workspace, one
+// in another, and one with no recorded workspace at all.
+const summaries = [
+  { sessionId: 'a', title: '第一个对话', blank: false, cwd: 'D:/work/alpha', updatedAt: 30 },
+  { sessionId: 'b', title: '第二个对话', blank: false, cwd: 'D:/work/alpha', updatedAt: 20 },
+  { sessionId: 'c', title: '第三个对话', blank: false, cwd: 'D:/work/beta', updatedAt: 10 },
+  { sessionId: 'd', title: '没有工作区的对话', blank: false, updatedAt: 5 }
+];
+const byId = {};
+for (const summary of summaries) byId[summary.sessionId] = summary;
+const listState = {
+  ids: summaries.map((summary) => summary.sessionId),
+  byId,
+  current: undefined,
+  state: 'idle',
+  phase: 'ready',
+  error: null
+};
+const sessions = {
+  list: { getSnapshot: () => listState, subscribe: () => () => {} },
+  get: () => ({
+    open: async () => {},
+    loadOlder: async () => {},
+    getSnapshot: () => ({ hasMore: false }),
+    events: { entries: () => [] },
+    prompt: async () => ({ ok: true })
+  }),
+  delete: async () => {}, fork: async () => {}, create: async () => 'x', open: () => {}
+};
+const ctx = {
+  effect: (fn) => { const dispose = fn(); return typeof dispose === 'function' ? dispose : () => {}; },
+  locale: { register: () => () => {}, subscribe: () => () => {} },
+  slots: { inject: () => () => {}, register: () => ({}) },
+  sessions
+};
+
+// --- drive it ---------------------------------------------------------------
+
+const frame = () => new Promise((resolve) => requestAnimationFrame(() => resolve()));
+const round = (n) => Math.round(n * 100) / 100;
+const box = (rect) => [round(rect.left), round(rect.top), round(rect.width), round(rect.height)];
+
+async function run() {
+  const registration = window.__smokeRegistration;
+  if (registration === undefined) throw new Error('the bundle did not register itself');
+  const table = new Map([
+    ['react', React],
+    ['react-dom/client', { createRoot: (container) => ReactDOM.createRoot(container) }],
+    ['react/jsx-runtime', makeJsxRuntime()],
+    ['@deepseek-ai/dsh-client-store', clientStore],
+    ['@deepseek-ai/dsh-client-ui-primitives', primitives]
+  ]);
+  const exports = registration.factory((spec) => {
+    if (!table.has(spec)) throw new Error(`unexpected require(${spec})`);
+    return table.get(spec);
+  });
+  record('exportsApply', typeof exports.apply);
+
+  exports.apply(ctx);
+  await frame(); await frame(); await frame();
+
+  const button = document.querySelector('.dsh-msel-inline');
+  const host = document.querySelector('[data-dsh-msel-host]');
+  const magnifier = document.querySelector('.searchButton');
+  const slot = document.querySelector('.searchSlot');
+  record('hostAttached', host !== null && document.body.contains(host));
+  record('buttonRendered', button !== null);
+  if (button === null || host === null) { finish(); return; }
+
+  record('hostParent', host.parentElement === slot ? 'searchSlot' : host.parentElement.className);
+  record('hostInlineRight', host.style.right);
+  record('hostComputedRight', getComputedStyle(host).right);
+  record('hostPosition', getComputedStyle(host).position);
+  // A drag region swallows pointer events before they become DOM events, so the
+  // opt-out has to actually resolve — not merely be assigned.
+  record('hostAppRegion', getComputedStyle(host).webkitAppRegion || '(empty)');
+  record('hostZIndex', getComputedStyle(host).zIndex);
+  record('slotOverflow', getComputedStyle(slot).overflow);
+  const hostBox = box(host.getBoundingClientRect());
+  const buttonBox = box(button.getBoundingClientRect());
+  const magnifierBox = box(magnifier.getBoundingClientRect());
+  const actionBox = box(document.querySelector('.headerActions button').getBoundingClientRect());
+  record('hostBox', hostBox);
+  record('buttonBox', buttonBox);
+  record('magnifierBox', magnifierBox);
+  record('gapToMagnifier', round(magnifierBox[0] - (buttonBox[0] + buttonBox[2])));
+  record('nativeGapMagnifierToAction', round(actionBox[0] - (magnifierBox[0] + magnifierBox[2])));
+  record('buttonBoxWidth', buttonBox[2]);
+
+  // What is actually on top of the injected button's centre?
+  const cx = buttonBox[0] + buttonBox[2] / 2;
+  const cy = buttonBox[1] + buttonBox[3] / 2;
+  const top = document.elementFromPoint(cx, cy);
+  record('elementFromPoint', top === null ? null : `${top.tagName.toLowerCase()}.${top.className}`);
+  record('hitTestReachesButton', top !== null && (top === button || button.contains(top) || host.contains(top)));
+
+  // The real question: does a real click open the dialog?
+  button.click();
+  await frame(); await frame();
+  record('modalAfterClick', document.querySelector('[data-fake-modal]') !== null);
+
+  // ...and does the open panel really lay the conversations out by workspace?
+  const groups = [...document.querySelectorAll('.dsh-msel-group')];
+  const headingText = (group) => group.querySelector('.dsh-msel-groupName')?.textContent ?? '';
+  record('groupHeadings', groups.map(headingText));
+  record('rowTitles', [...document.querySelectorAll('.dsh-msel-row .dsh-msel-title')].map((node) => node.textContent));
+  record('rowsPerHeading', groups.map((group) => {
+    // Rows that follow this heading in paint order, up to the next heading.
+    let count = 0;
+    for (let node = group.nextElementSibling; node !== null && !node.classList.contains('dsh-msel-group'); node = node.nextElementSibling) {
+      if (node.classList.contains('dsh-msel-row')) count += 1;
+    }
+    return count;
+  }));
+  // A whole workspace in one click, through the real React handler.
+  groups[0]?.click();
+  await frame(); await frame();
+  record('selectedAfterGroupClick', [...document.querySelectorAll('.dsh-msel-row')].map((row) => row.getAttribute('data-selected')));
+
+  // Close it the way a user does — through the mask — so React really unmounts
+  // the portal, then click the button again at its centre with a dispatched
+  // MouseEvent. (Removing React's DOM by hand would leave React thinking the
+  // portal is still mounted, and the second click would prove nothing.)
+  document.querySelector('[data-fake-mask]')?.click();
+  await frame(); await frame();
+  record('modalClosedAgain', document.querySelector('[data-fake-modal]') === null);
+
+  const dispatchTarget = document.elementFromPoint(cx, cy) ?? button;
+  dispatchTarget.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, clientX: cx, clientY: cy }));
+  await frame(); await frame();
+  record('modalAfterDispatchedClick', document.querySelector('[data-fake-modal]') !== null);
+
+  finish();
+}
+
+function finish() {
+  record('errors', errors);
+  // The diagnostic ring is the channel a shipped plugin can be inspected
+  // through, so the harness proves it is actually written.
+  try {
+    record('diagTrail', JSON.parse(sessionStorage.getItem('dsh.session.multiselect.diag') ?? '[]'));
+  } catch (error) {
+    record('diagTrail', `unreadable: ${String(error)}`);
+  }
+  const pre = document.createElement('pre');
+  pre.id = 'verdict';
+  pre.textContent = JSON.stringify(Object.fromEntries(results), null, 1);
+  document.body.appendChild(pre);
+}
+
+run().catch((error) => {
+  const pre = document.createElement('pre');
+  pre.id = 'verdict';
+  pre.textContent = `ERROR: ${error?.stack ?? error}`;
+  document.body.appendChild(pre);
+});
+</script>
+</body>
+</html>

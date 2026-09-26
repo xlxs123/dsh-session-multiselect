@@ -1,0 +1,14 @@
+# Keep the repository in LF regardless of the contributor's platform: the plugin
+# is plain text with no build step, so there is nothing that needs CRLF.
+* text=auto eol=lf
+
+# Binary assets, if any are ever added
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary
+
+# The lockfile is generated: GitHub collapses it, but it still diffs normally.
+package-lock.json linguist-generated=true

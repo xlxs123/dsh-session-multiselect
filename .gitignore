@@ -1,0 +1,21 @@
+# Dependencies (only the test harness needs them; the shipped plugin has none)
+node_modules/
+# package-lock.json IS committed (reproducible CI); these belong to other managers
+pnpm-lock.yaml
+yarn.lock
+
+# Plugin packaging output
+*.tgz
+
+# Local scratch: diagnostic dumps and the smoke runner's throwaway profile
+*.log
+smoke-*/
+.diag-*.mjs
+.shell-*.mjs
+.controller-*.mjs
+
+# Editor / OS noise
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
