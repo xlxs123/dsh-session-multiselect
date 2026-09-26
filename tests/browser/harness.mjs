@@ -15,7 +15,7 @@
  */
 import { spawn } from 'node:child_process'
 import { createServer } from 'node:http'
-import { existsSync } from 'node:fs'
+import { existsSync, mkdirSync, openSync, readFileSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
 import { dirname, extname, join, normalize, resolve } from 'node:path'
@@ -162,6 +162,18 @@ async function openTarget(url) {
 }
 
 /**
+ * Why the last health probe said no.
+ *
+ * A browser that never becomes usable fails the run either way, but the reason
+ * decides what to change: CDP not listening means the process did not start,
+ * a rejected WebSocket means the browser refused the connection (an Origin
+ * check, seen on newer Chrome), and a target that will not open means the HTTP
+ * endpoint moved. Reporting "never exposed a usable CDP target" for all three is
+ * what makes a CI failure unactionable.
+ */
+let probeFailure = 'no probe ran yet'
+
+/**
  * Is the browser on the CDP port actually usable?
  *
  * `/json/version` answers while a browser is still shutting down, and a browser
@@ -173,7 +185,10 @@ async function openTarget(url) {
 async function browserIsHealthy() {
 	try {
 		const probe = await fetch(`${cdpOrigin}/json/version`)
-		if (!probe.ok) return false
+		if (!probe.ok) {
+			probeFailure = `CDP answered ${probe.status} on /json/version`
+			return false
+		}
 		const target = await openTarget('about:blank')
 		const client = makeClient(target.webSocketDebuggerUrl)
 		await client.ready
@@ -181,28 +196,54 @@ async function browserIsHealthy() {
 		const reply = await client.send('Runtime.evaluate', { expression: '41 + 1', returnByValue: true })
 		client.close()
 		await fetch(`${cdpOrigin}/json/close/${target.id}`).catch(() => {})
-		return reply.result?.value === 42
-	} catch {
+		if (reply.result?.value !== 42) {
+			probeFailure = `evaluate returned ${JSON.stringify(reply.result?.value)}`
+			return false
+		}
+		probeFailure = ''
+		return true
+	} catch (error) {
+		probeFailure = error.message
 		return false
 	}
 }
 
 /** Reuse a browser already listening on the CDP port *and still alive*, or start one. */
 async function ensureBrowser() {
+	probeFailure = ''
 	if (await browserIsHealthy()) return { spawned: null, profile: null }
 	const profile = join(tmpdir(), `smoke-${randomUUID().slice(0, 8)}`)
+	mkdirSync(profile, { recursive: true })
+	// Chrome's own complaints are the only witness when it refuses to come up on
+	// a fresh machine, so they go to a file rather than to /dev/null.
+	const stderrPath = join(profile, 'chrome-stderr.log')
 	const child = spawn(browserPath, [
 		'--headless=new', '--disable-gpu', '--no-sandbox', '--no-first-run', '--disable-extensions',
 		'--disable-background-timer-throttling', '--disable-renderer-backgrounding',
+		// Containers (CI runners) give /dev/shm far less than a browser wants.
+		'--disable-dev-shm-usage',
+		// Chrome 111+ rejects a DevTools WebSocket whose Origin it does not allow;
+		// a non-browser client has no Origin to negotiate, so allow every one.
+		'--remote-allow-origins=*',
 		'--allow-file-access-from-files', `--user-data-dir=${profile}`,
 		`--remote-debugging-port=${cdpPort}`, 'about:blank'
-	], { detached: true, stdio: 'ignore' })
+	], { detached: true, stdio: ['ignore', 'ignore', openSync(stderrPath, 'a')] })
 	child.unref()
-	for (let attempt = 0; attempt < 60; attempt += 1) {
+	for (let attempt = 0; attempt < 80; attempt += 1) {
 		await sleep(250)
 		if (await browserIsHealthy()) return { spawned: child, profile }
 	}
-	throw new Error(`headless browser never exposed a usable CDP target on ${cdpOrigin}`)
+	let stderr = ''
+	try {
+		stderr = readFileSync(stderrPath, 'utf8').trim().split('\n').slice(-8).join('\n')
+	} catch {
+		/* the browser never wrote anything */
+	}
+	throw new Error(
+		`headless browser (${browserPath}) never exposed a usable CDP target on ${cdpOrigin}\n`
+		+ `last probe: ${probeFailure}\n`
+		+ (stderr === '' ? 'chrome wrote nothing to stderr' : `chrome stderr:\n${stderr}`)
+	)
 }
 
 // --- run --------------------------------------------------------------------
