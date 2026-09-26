@@ -120,9 +120,35 @@ function startServer() {
 
 const sleep = (ms) => new Promise((done) => setTimeout(done, ms))
 
-/** Minimal CDP client over the global WebSocket. */
+/**
+ * The WebSocket implementation the CDP client talks through.
+ *
+ * Node only grew a global `WebSocket` in v22, and the CI runner uses the LTS
+ * before it — where the client silently became "browser never exposed a usable
+ * CDP target". The `ws` devDependency covers that, and the global is preferred
+ * when it exists so a plain `node tests/browser/harness.mjs` needs no install.
+ * @returns a constructor taking a URL, with the browser event API.
+ */
+async function loadWebSocket() {
+	if (process.env.SMOKE_WS !== 'ws' && typeof globalThis.WebSocket === 'function') return globalThis.WebSocket
+	try {
+		const module = await import('ws')
+		const candidate = module.WebSocket ?? module.default
+		if (typeof candidate === 'function') return candidate
+	} catch {
+		/* not installed */
+	}
+	throw new Error(
+		'this Node has no global WebSocket (added in v22) and the `ws` devDependency is not installed. '
+		+ 'Run `npm install`, or use Node 22+.'
+	)
+}
+
+const WebSocketImpl = await loadWebSocket()
+
+/** Minimal CDP client over a WebSocket. */
 function makeClient(wsUrl) {
-	const socket = new WebSocket(wsUrl)
+	const socket = new WebSocketImpl(wsUrl)
 	const pending = new Map()
 	const console_ = []
 	let nextId = 0

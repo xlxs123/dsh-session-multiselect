@@ -176,8 +176,10 @@ npm run diag                           # 从桌面应用的 Session Storage 里�
 间距是否等于原生按钮间距、分组标题是否显示完整路径、点标题能否整组勾选。Node 桩答不了的就是这类问题。
 React UMD 的查找顺序是：`SMOKE_APP_NODE_MODULES` / `DSH_APP_NODE_MODULES` → 本包 `node_modules` →
 DSH Desktop 安装目录（Windows `%LOCALAPPDATA%\Programs\...`、macOS `/Applications/DSH Desktop.app/...`）。
-可覆盖的环境变量：`SMOKE_BROWSER`、`SMOKE_PORT`、`SMOKE_CDP_PORT`、`SMOKE_KEEP_BROWSER=1`。
-CI（GitHub Actions）跑的就是这两条命令。
+Node 只要 20+：CDP 客户端优先用 Node 自带的 `WebSocket`（v22 起才有），否则用 devDependency `ws`
+（CI 跑在 Node 20 上，走的就是这条路；`SMOKE_WS=ws` 可以强制走它做验证）。
+可覆盖的环境变量：`SMOKE_BROWSER`、`SMOKE_PORT`、`SMOKE_CDP_PORT`、`SMOKE_APP_NODE_MODULES`、
+`SMOKE_KEEP_BROWSER=1`。CI（GitHub Actions）跑的就是这两条命令。
 
 `lib/client.js` 是手写的 CJS 形式浏览器 bundle（与官方客户端插件同构），无需构建步骤即可被
 客户端模块系统加载；`tests/` 通过伪造 `window.__ModuleLoader__` 与 `require` 直接驱动这份产物，
