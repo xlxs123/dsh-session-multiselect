@@ -587,6 +587,10 @@ test('the footer fallback button hides only when placement succeeded', () => {
 	const renderFooter = (inline) => exports.MultiSelectEntry({
 		t: (key) => key,
 		actions: {},
+		// The slot passes the resolved icons and the tooltip helper exactly as
+		// `apply` built them; a stub here keeps the test about visibility.
+		icons: { checklist: () => null, search: () => null, loading: () => null },
+		tip: (label, child) => ({ type: 'tooltip', props: { label, children: child } }),
 		hooks: {
 			sessions: { subscribe: () => () => {}, getSnapshot: () => ({ items: [] }) },
 			placement: { subscribe: () => () => {}, getSnapshot: () => ({ inline }) },

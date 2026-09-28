@@ -22,9 +22,9 @@ DSH Web 客户端的**对话多选插件**：一次勾选多个对话，然后�
   `sessions` 服务、`locale` 字典、客户端 store —— 不改动 DSH 原生代码
 - 注入失败也**不会失去功能**：定位不到目标时入口自动退回侧边栏底部
 
-兼容性：在 **DSH Desktop 0.9.0** 的 Web 客户端上开发并实测（Windows）；插件只依赖官方已有的
-`slots` / `locale` / `sessions` 三个服务，不依赖任何带构建哈希的类名以外的内部结构，DSH 升级导致的
-最坏情况是入口退回底部。
+兼容性：在 **DSH Desktop 0.9.0 与 0.10.0**（Harness 0.1.x / 0.1.7-rc.2）的 Web 客户端上开发并实测（Windows）。
+插件只依赖官方已有的 `slots` / `locale` / `sessions` 三个服务；对会随版本变化的**装饰性契约**
+（图标导出名、Button 的 variant）一律做「多候选名 + 自带兜底」，见下文「跨版本兼容」。
 
 ## 功能
 
@@ -130,6 +130,40 @@ DSH 客户端 **没有** host 侧的 archive / pin 契约（原生侧边栏的�
 它只写入本标签页的会话存储、写失败也绝不影响功能，用来回答「点击到底有没有到达按钮、
 面板有没有渲染、删除到底报的什么错」这类只能靠现场才能判断的问题。
 
+### 跨版本兼容
+
+DSH 升级会改两类东西，本插件对它们的处理方式不同：
+
+| 会变的东西 | 例子 | 本插件的做法 |
+| --- | --- | --- |
+| **结构性契约** | `slots` / `sessions` / `locale` 服务、`dsh.client` 清单、`/plugins/<id>/client.js` 路由、`Modal` / `Button` / `Input` 组件 | 直接依赖，缺失就**明确报错**（面板会显示原因，不会静默消失） |
+| **装饰性契约** | 图标导出名（0.10 把 `IconSearchOutline16` 改成 `IconSearchOutlineRegular` 并删掉旧名）、`Button` 的 variant（0.10 的 `solid` 变成 `primary`）、带哈希的类名 | **多候选名 + 自带兜底**：图标按候选名找，找不到就用插件内联的同一份 16px path 自己画；删除按钮的红色用插件自己的 class，不看 variant |
+
+0.10 那次的真实教训：旧版本把图标写进「必需导出」清单，于是**一个图标改名 = 插件挂不上**
+（`apply` 抛错，没有按钮、没有面板、也没有提示）。现在必需清单只剩 `Modal` / `Button` / `Input`；
+`Tooltip` 与三个图标都是可选的，`tests/primitives.test.mjs` 会**读本机安装的
+`@deepseek-ai/dsh-client-ui-primitives` 的真实导出清单**来验证解析结果（没装 DSH 时该用例自动跳过，
+所以 CI 仍然全绿）。哪一次升级又把图标改名了，诊断环里的 `apply … icons={…}` 会直接写出 `fallback(...)`。
+
+### 升级 DSH 之后如果入口不见了
+
+先看**设置 → 插件**里这个插件是否还在。DSH Desktop 0.10 引入了插件管理器与「移除记录」
+（`$DSH_HOME/recovery/plugin-removals.json`）：一次大版本升级或一次「移除损坏插件」的操作，
+会把条目从 profile 的 `package.json`（依赖 + `dsh.profile.bundles`）里摘掉 —— 这不等于不兼容，
+重新装一次即可：
+
+```sh
+cd <本包目录>
+dsh plugin --profile web add .
+# 然后完全退出并重开 DSH Desktop
+```
+
+若 `dsh plugin add` 在本机报 `spawn …powershell.exe ENOENT` 之类的错（0.10 的 CLI 偶发），
+等价的手工做法是：在 profile 目录（`$DSH_HOME/profiles/web`）的 `package.json` 里加上
+`"dsh-session-multiselect": "link:<本包绝对路径>"` 依赖与 `dsh.profile.bundles` 条目，
+然后在**该 profile 目录内**用 DSH 自带的 pnpm 跑一次 `install`
+（`$DSH_HOME/.desktop-bin/pnpm.cmd`），最后重启。
+
 ## 安装
 
 插件是标准 DSH bundle 包（声明 `dsh.bundle.patch` + `dsh.client`），**没有依赖需要安装**：仓库里就是可直接加载的产物。安装后**需要重启 DSH Desktop**（profile 的 bundle 层栈与 `__DSH_BOOT__` 客户端图在启动时合成）。
@@ -160,13 +194,14 @@ dsh plugin --profile web add .     # 路径含空格时务必在包目录内执�
 lib/index.js      Node half（空实现：本插件没有 host 侧功能）
 lib/client.js     浏览器 bundle：面板、选择模型、批量动作、头部注入（window.__ModuleLoader__ 契约）
 src/index.ts      Node half 源码
-tests/            56 个测试：纯逻辑单测 + 以假 Cordis 上下文挂载真实 bundle + 注入逻辑（含 DOM 桩）
+tests/            59 个测试：纯逻辑单测 + 以假 Cordis 上下文挂载真实 bundle + 注入逻辑（含 DOM 桩）
+                  + 对着本机安装的 primitives 真实导出清单做兼容性验证
 tests/browser/    真实浏览器冒烟测试：真 React 18 + 无头 Chromium + 复制自工作区插件的头部 CSS
 ```
 
 ```sh
-npm install                            # 只装 devDependencies（react/react-dom），供浏览器测试当 React 源
-npm test                               # = node --test  （56 个文件级测试，约 0.4 秒）
+npm install                            # 只装 devDependencies（react/react-dom/ws），供测试当 React/WebSocket 源
+npm test                               # = node --test  （59 个文件级测试，约 0.5 秒）
 npm run test:browser                   # 真实浏览器冒烟：需要 Chrome/Edge（自动探测路径）
 npm run diag                           # 从桌面应用的 Session Storage 里读出诊断环
 ```
@@ -180,6 +215,11 @@ Node 只要 20+：CDP 客户端优先用 Node 自带的 `WebSocket`（v22 起才
 （CI 跑在 Node 20 上，走的就是这条路；`SMOKE_WS=ws` 可以强制走它做验证）。
 可覆盖的环境变量：`SMOKE_BROWSER`、`SMOKE_PORT`、`SMOKE_CDP_PORT`、`SMOKE_APP_NODE_MODULES`、
 `SMOKE_KEEP_BROWSER=1`。CI（GitHub Actions）跑的就是这两条命令。
+
+`tests/primitives.test.mjs` 是**针对本机安装版本**的兼容性用例：它从
+`@deepseek-ai/dsh-client-ui-primitives` 的构建产物里读出真实导出清单，用它当模块表来挂载插件，
+再断言三个图标都解析成了这份清单里的真名（而不是兜底）。装了 DSH 才有意义，所以没装时自动 `skip`：
+`SMOKE_APP_NODE_MODULES=<...>/resources/app.asar.unpacked/node_modules npm test`。
 
 `lib/client.js` 是手写的 CJS 形式浏览器 bundle（与官方客户端插件同构），无需构建步骤即可被
 客户端模块系统加载；`tests/` 通过伪造 `window.__ModuleLoader__` 与 `require` 直接驱动这份产物，

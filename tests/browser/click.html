@@ -139,9 +139,11 @@ const primitives = {
   Tooltip,
   Button: (props) => h('button', { type: 'button' }, props.children),
   Input: (props) => h('input', { placeholder: props.placeholder }),
-  IconSearchOutline16: Icon,
-  IconChecklistOutline14: Icon,
-  IconLoadingOutline16: Icon
+  // The names DSH 0.10 ships; 0.9 used IconSearchOutline16 and friends, and the
+  // plugin resolves whichever exists (falling back to its own artwork).
+  IconSearchOutlineRegular: Icon,
+  IconChecklistOutlineRegular: Icon,
+  IconLoadingOutlineRegular: Icon
 };
 
 // --- fake plugin context ----------------------------------------------------

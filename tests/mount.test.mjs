@@ -85,8 +85,10 @@ function makePrimitives(rendered) {
 		return component
 	}
 	const required = [
+		// The 0.10 names: this stub mirrors what the installed primitives ship, so
+		// a test that silently depended on an older spelling would fail here.
 		'Modal', 'Button', 'Input', 'Tooltip',
-		'IconSearchOutline16', 'IconChecklistOutline14', 'IconLoadingOutline16'
+		'IconSearchOutlineRegular', 'IconChecklistOutlineRegular', 'IconLoadingOutlineRegular'
 	]
 	const table = {}
 	for (const name of required) table[name] = named(name)
@@ -353,6 +355,10 @@ function mount({ items = [], records, onCreate, shape } = {}) {
 	const props = {
 		actions: face.actions,
 		hooks: face.hooks,
+		// The slot hands the component exactly what `inject()` returned; the
+		// resolved icons and the tooltip helper travel with it.
+		icons: face.icons,
+		tip: face.tip,
 		t: (key, params) => (params === undefined ? key : `${key}${JSON.stringify(params)}`)
 	}
 	const renderEntry = () => react.withHooks('MultiSelectEntry', () => registration.entry.component(props))
@@ -449,13 +455,46 @@ test('every locale key the panel asks for exists in both dictionaries', () => {
 	assert.ok(asked.size > 10, `the panel should ask for a real set of labels, saw ${String(asked.size)}`)
 })
 
-test('apply refuses to mount when a required primitive is missing', () => {
+test('apply refuses to mount when a structural primitive is missing', () => {
 	const bundle = loadBundle()
 	const primitives = makePrimitives([])
-	delete primitives.IconChecklistOutline14
+	delete primitives.Modal
 	const { exports } = bundle.instantiate(primitives, makeReact())
 	const { ctx } = makeCtx({ sessions: makeSessions() })
-	assert.throws(() => exports.apply(ctx), /IconChecklistOutline14/u)
+	assert.throws(() => exports.apply(ctx), /Modal/u)
+})
+
+test('a renamed or missing icon falls back to its own artwork instead of failing the mount', () => {
+	const bundle = loadBundle()
+	const primitives = makePrimitives([])
+	// DSH 0.10 renamed every icon; a build that renames them again must cost a
+	// glyph, not the feature.
+	delete primitives.IconChecklistOutlineRegular
+	delete primitives.IconSearchOutlineRegular
+	delete primitives.IconLoadingOutlineRegular
+	const { exports } = bundle.instantiate(primitives, makeReact())
+	const { ctx, registrations } = makeCtx({ sessions: makeSessions() })
+	exports.apply(ctx)
+	const face = registrations[0].entry.options.inject()
+	assert.equal(typeof face.icons.checklist, 'function')
+	assert.notEqual(face.icons.checklist, primitives.IconChecklistOutlineRegular)
+	// The fallback is a real inline icon: an svg with the shipped path data.
+	const rendered = face.icons.checklist({ size: 16 })
+	assert.equal(rendered.type, 'svg')
+	assert.equal(rendered.props.viewBox, '0 0 16 16')
+	assert.ok(rendered.props.children.length > 0)
+})
+
+test('a primitives table without Tooltip still renders a working entry button', () => {
+	const bundle = loadBundle()
+	const primitives = makePrimitives([])
+	delete primitives.Tooltip
+	const { exports } = bundle.instantiate(primitives, makeReact())
+	const { ctx, registrations } = makeCtx({ sessions: makeSessions() })
+	exports.apply(ctx)
+	const face = registrations[0].entry.options.inject()
+	const button = face.tip('tip text', { type: 'button' })
+	assert.equal(button.type, 'button', 'the tooltip wrapper is skipped, the button is not')
 })
 
 test('store markMany toggles unread, pinned, and archived id sets', () => {
