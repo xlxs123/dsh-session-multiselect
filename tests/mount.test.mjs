@@ -98,7 +98,7 @@ function makePrimitives(rendered) {
 /**
  * React stand-in with real state semantics, so a test can drive a component the
  * way a user does: call a setter, then re-render. Hooks are namespaced per
- * component, because real React keeps a separate hook slot per component —one
+ * component, because real React keeps a separate hook slot per component 鈥攐ne
  * shared cursor would wrongly collide a child's `useState` with its parent's.
  */
 function makeReact() {
@@ -108,7 +108,7 @@ function makeReact() {
 		cursor: 0,
 		effects: [],
 		/**
-		 * One hook cell per call position, in call order —the same discipline
+		 * One hook cell per call position, in call order 鈥攖he same discipline
 		 * React enforces. `useState` and `useRef` must therefore not share a
 		 * cursor, or a ref would read a state's slot.
 		 */
@@ -268,8 +268,8 @@ function makeCtx({ sessions }) {
  * Fake `sessions` service matching the Session Controller client surface.
  *
  * `shape` picks the snapshot the controller actually hands out: the normalized
- * `{ ids, byId, … }` one (what the workspace and other clients read) or the
- * flattened `{ items, … }` projection. Both must list sessions.
+ * `{ ids, byId, 鈥?}` one (what the workspace and other clients read) or the
+ * flattened `{ items, 鈥?}` projection. Both must list sessions.
  */
 function makeSessions({ items = [], records = {}, onCreate = () => 'new-session', shape = 'normalized' } = {}) {
 	const calls = { deleted: [], forked: [], created: [], prompted: [], opened: [] }
@@ -283,7 +283,7 @@ function makeSessions({ items = [], records = {}, onCreate = () => 'new-session'
 			// Faithful to the controller's projection: each value carries the id as
 			// `id` and a derived `displayTitle`; `sessionId` and `title` are not part
 			// of it. Fixtures keeping the friendly names would hide exactly the bug
-			// where every row ends up keyed on a missing `sessionId` — one click
+			// where every row ends up keyed on a missing `sessionId` 鈥?one click
 			// then selects every row.
 			const { sessionId, title, ...rest } = summary
 			byId[sessionId] = {
@@ -363,8 +363,8 @@ function mount({ items = [], records, onCreate, shape } = {}) {
 	}
 	const renderEntry = () => react.withHooks('MultiSelectEntry', () => registration.entry.component(props))
 	/**
-	 * Open the panel the way the document-level trigger does — through the
-	 * plugin's own store — then render the entry that should show it.
+	 * Open the panel the way the document-level trigger does 鈥?through the
+	 * plugin's own store 鈥?then render the entry that should show it.
 	 */
 	const openAndRender = () => {
 		face.hooks.panel.set({ open: true })
@@ -417,13 +417,13 @@ test('apply registers dictionaries, a store, and the footer slot entry', () => {
 	assert.equal(options.locale, 'sessionMultiselect')
 	assert.equal(typeof world.entry.component, 'function')
 
-	for (const method of ['deleteSessions', 'forkSessions', 'readTranscripts', 'synthesize', 'flagSessions']) {
+	for (const method of ['deleteSessions', 'markInlineProven']) {
 		assert.equal(typeof world.face.actions[method], 'function', `actions.${method}`)
 	}
 	assert.equal(typeof world.face.hooks.sessions.getSnapshot, 'function')
 	assert.equal(typeof world.face.hooks.sessions.subscribe, 'function')
 	assert.equal(typeof world.face.hooks.store.getSnapshot, 'function')
-	assert.equal(typeof world.face.hooks.store.actions.markMany, 'function')
+	assert.equal(typeof world.face.hooks.store.actions.setArchived, 'function')
 
 	const dicts = world.dictionaries.get('sessionMultiselect')
 	assert.ok(dicts.zh !== undefined && dicts.en !== undefined)
@@ -497,22 +497,18 @@ test('a primitives table without Tooltip still renders a working entry button', 
 	assert.equal(button.type, 'button', 'the tooltip wrapper is skipped, the button is not')
 })
 
-test('store markMany toggles unread, pinned, and archived id sets', () => {
+test('store setArchived adds and removes ids, and nothing else', () => {
 	const world = mount()
 	const store = world.face.hooks.store
 
-	store.actions.markMany('unread', ['a', 'b'])
-	assert.deepEqual([...store.getSnapshot().unreadIds].sort(), ['a', 'b'])
-	store.actions.markMany('read', ['a'])
-	assert.deepEqual([...store.getSnapshot().unreadIds], ['b'])
-	store.actions.markMany('pin', ['c'])
-	assert.deepEqual([...store.getSnapshot().pinnedIds], ['c'])
-	store.actions.markMany('archive', ['d', 'e'])
-	assert.deepEqual([...store.getSnapshot().archivedIds].sort(), ['d', 'e'])
-	store.actions.markMany('unarchive', ['d'])
-	assert.deepEqual([...store.getSnapshot().archivedIds], ['e'])
-	store.actions.markMany('unpin', ['c'])
-	assert.deepEqual([...store.getSnapshot().pinnedIds], [])
+	assert.deepEqual(store.getSnapshot().archivedIds, [], 'nothing is archived to begin with')
+	store.actions.setArchived(['a', 'b'], true)
+	assert.deepEqual([...store.getSnapshot().archivedIds].sort(), ['a', 'b'])
+	store.actions.setArchived(['b'], false)
+	assert.deepEqual([...store.getSnapshot().archivedIds], ['a'])
+	// The panel exposes two actions, so the store keeps two marks' worth of
+	// state: archived ids and nothing else.
+	assert.deepEqual(Object.keys(store.getSnapshot()).sort(), ['archivedIds', 'groupByWorkspace', 'inlineProven'])
 })
 
 test('deleteSessions reports per-session failures without aborting the batch', async () => {
@@ -528,55 +524,6 @@ test('deleteSessions reports per-session failures without aborting the batch', a
 	assert.equal(result.failed[0].id, 'missing')
 	assert.match(result.failed[0].reason, /session\/not-found/u)
 	assert.deepEqual(world.sessions.calls.deleted, ['a', 'missing', 'b'])
-})
-
-test('forkSessions forks each selection', async () => {
-	const world = mount()
-	const result = await world.face.actions.forkSessions(['a', 'b'])
-	assert.equal(result.ok, 2)
-	assert.deepEqual(world.sessions.calls.forked, ['a', 'b'])
-})
-
-test('readTranscripts folds history into titled turns and reports progress', async () => {
-	const world = mount({
-		items: [{ sessionId: 'a', title: 'Alpha', updatedAt: 1 }],
-		records: {
-			a: [
-				{ type: 'user/message', message: { content: [{ type: 'text', text: 'question' }] } },
-				{ type: 'assistant/message', message: { content: [{ type: 'reasoning', text: 'hidden' }, { type: 'text', text: 'answer' }] } }
-			]
-		}
-	})
-	const progress = []
-	const read = await world.face.actions.readTranscripts(['a'], (done, total) => progress.push([done, total]))
-	assert.deepEqual(progress, [[1, 1]])
-	assert.equal(read.failed.length, 0)
-	const helpers = globalThis.__DSH_SESSION_MULTISELECT__
-	assert.deepEqual(helpers.extractTurns(read.entries[0].records), [
-		{ role: 'user', text: 'question' },
-		{ role: 'assistant', text: 'answer' }
-	])
-	assert.match(helpers.sessionMarkdown(read.entries[0].summary, read.entries[0].records), /^# Alpha/u)
-})
-
-test('synthesize creates and opens one session carrying every selected transcript', async () => {
-	const world = mount({ onCreate: () => 'new-id' })
-	const outcome = await world.face.actions.synthesize([
-		{ summary: { sessionId: 'a', title: 'Alpha', cwd: 'D:\\proj' }, records: [{ event: { type: 'user/message', message: { content: 'first' } } }] },
-		{ summary: { sessionId: 'b', title: 'Beta' }, records: [{ event: { type: 'user/message', message: { content: 'second' } } }] }
-	])
-	assert.equal(outcome.sessionId, 'new-id')
-	assert.equal(outcome.truncated, false)
-	assert.equal(outcome.accepted, true)
-	assert.deepEqual(world.sessions.calls.created, [{ cwd: 'D:\\proj' }])
-	assert.equal(world.sessions.calls.prompted.length, 1)
-	assert.equal(world.sessions.calls.prompted[0].sessionId, 'new-id')
-	assert.equal(world.sessions.calls.prompted[0].mode, 'queue')
-	const text = world.sessions.calls.prompted[0].content[0].text
-	assert.match(text, /请完成两件事/u)
-	assert.match(text, /# Alpha/u)
-	assert.match(text, /# Beta/u)
-	assert.ok(world.sessions.calls.opened.includes('new-id'), 'the aggregation session must be opened')
 })
 
 test('the entry renders closed, and opening it reveals the panel', () => {
@@ -628,12 +575,18 @@ function listOf(body) {
 	return body.props.children[1]
 }
 
+/** The list's children as an array; the empty state is a single element. */
+function listChildren(body) {
+	const children = listOf(body).props.children
+	return Array.isArray(children) ? children : []
+}
+
 function listRows(body) {
-	return listOf(body).props.children.filter((node) => node.props.className === 'dsh-msel-row')
+	return listChildren(body).filter((node) => node.props.className === 'dsh-msel-row')
 }
 
 function listGroups(body) {
-	return listOf(body).props.children.filter((node) => node.props.className === 'dsh-msel-group')
+	return listChildren(body).filter((node) => node.props.className === 'dsh-msel-group')
 }
 
 /** The conversation title a rendered row shows. */
@@ -656,7 +609,7 @@ test('both session-list snapshot shapes list the same sessions', () => {
 	const normalized = rowsOf('normalized')
 	// The controller hands the UI `{ ids, byId }`; reading only a flattened
 	// `items` array is how the panel ends up listing nothing at all.
-	assert.deepEqual(normalized, ['Alpha', 'Gamma'], 'the controller’s { ids, byId } snapshot lists sessions')
+	assert.deepEqual(normalized, ['Alpha', 'Gamma'], 'the controller鈥檚 { ids, byId } snapshot lists sessions')
 	assert.deepEqual(rowsOf('items'), normalized, 'and so does the flattened projection')
 })
 
@@ -735,7 +688,7 @@ test('the panel heads every workspace group and selects one with a single click'
 	// The workspace whose newest conversation is newest leads; sessions with no
 	// workspace trail, so the named headings stay meaningful.
 	assert.deepEqual(groups.map((group) => group.props['data-workspace']), ['D:\\alpha', 'D:\\beta', ''])
-	// The heading carries the whole path — two workspaces can share a last segment.
+	// The heading carries the whole path 鈥?two workspaces can share a last segment.
 	assert.deepEqual(groups.map((group) => group.props.children[1].props.children), ['D:\\alpha', 'D:\\beta', 'group.noWorkspace'])
 	assert.match(groups[1].props.children[0].props['aria-label'], /beta$/u, 'the accessible name stays short and readable')
 	assert.deepEqual(listRows(body).map(rowTitle), ['Alpha', 'Gamma', 'Beta', 'Delta'], 'each row stays under its own heading')
@@ -848,6 +801,35 @@ test('delete asks for confirmation before touching the service', () => {
 	// Confirming starts the deletion (the batch runs asynchronously).
 	confirmPanel.props.children[1].props.children[0].props.onClick()
 	assert.deepEqual(world.sessions.calls.deleted, ['a'])
+})
+
+test('the panel offers exactly two actions, and the second one toggles archive', () => {
+	const world = mount({
+		items: [
+			{ sessionId: 'a', title: 'Alpha', updatedAt: 30 },
+			{ sessionId: 'b', title: 'Beta', updatedAt: 20 }
+		]
+	})
+	world.renderPanelBody() // first paint, so the panel's own setters exist
+	world.react.setterOf('MultiSelectPanel', 2)(new Set(['a', 'b']))
+	const body = world.renderPanelBody()
+	const actionRow = body.props.children[3]
+	assert.equal(actionRow.props.children.length, 2, 'delete and archive, nothing else')
+	assert.equal(actionRow.props.children[0].props.children, 'action.delete')
+	assert.equal(actionRow.props.children[1].props.children, 'action.archive')
+
+	// Archiving hides the rows (the panel lists unarchived rows only), and the
+	// button flips to the reverse direction for the archived selection.
+	actionRow.props.children[1].props.onClick()
+	assert.deepEqual([...world.face.hooks.store.getSnapshot().archivedIds].sort(), ['a', 'b'])
+	assert.equal(listRows(world.renderPanelBody()).length, 0, 'archived rows leave the default list')
+
+	world.react.setterOf('MultiSelectPanel', 1)(true) // "show archived"
+	const shown = world.renderPanelBody()
+	assert.equal(listRows(shown).length, 2)
+	assert.equal(shown.props.children[3].props.children[1].props.children, 'action.unarchive', 'the button offers the way back')
+	shown.props.children[3].props.children[1].props.onClick()
+	assert.deepEqual([...world.face.hooks.store.getSnapshot().archivedIds], [])
 })
 
 test('searching filters the rows and reports an empty result', () => {

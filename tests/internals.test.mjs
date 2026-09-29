@@ -2,8 +2,8 @@
  * Unit tests for the dsh-session-multiselect client bundle's pure logic.
  *
  * The bundle is a browser artifact, so the test drives it exactly the way the
- * page does — a fake `window.__ModuleLoader__` hands the factory a fake
- * `require` — and then reads the helpers the bundle publishes on
+ * page does 鈥?a fake `window.__ModuleLoader__` hands the factory a fake
+ * `require` 鈥?and then reads the helpers the bundle publishes on
  * `globalThis.__DSH_SESSION_MULTISELECT__`. That keeps the tested code identical
  * to the shipped code instead of a re-implementation.
  *
@@ -54,134 +54,27 @@ const { exports, helpers } = loadBundle()
 test('bundle exports the module face and publishes testable helpers', () => {
 	assert.equal(typeof exports.apply, 'function')
 	assert.deepEqual(exports.inject, ['slots', 'locale', 'sessions'])
-	assert.equal(typeof helpers.extractTurns, 'function')
+	assert.equal(typeof helpers.groupRows, 'function')
 })
 
-test('extractTurns keeps user and assistant prose and drops tool traffic', () => {
-	const records = [
-		{ event: { type: 'turn/start', seq: 0 } },
-		{ event: { type: 'user/message', message: { content: [{ type: 'text', text: 'hello there' }] } } },
-		{ event: { type: 'assistant/attempt', stream: [] } },
-		{ event: { type: 'tool/call', name: 'read' } },
-		{ event: { type: 'tool/result', content: [] } },
-		{
-			event: {
-				type: 'assistant/message',
-				message: {
-					content: [
-						{ type: 'reasoning', text: 'hidden chain of thought' },
-						{ type: 'text', text: 'the answer' },
-						{ type: 'tool-call', name: 'write' }
-					]
-				}
-			}
-		}
-	]
-	assert.deepEqual(helpers.extractTurns(records), [
-		{ role: 'user', text: 'hello there' },
-		{ role: 'assistant', text: 'the answer\n[tool call: write]' }
-	])
-})
-
-test('extractTurns tolerates malformed and missing records', () => {
-	assert.deepEqual(helpers.extractTurns(undefined), [])
-	assert.deepEqual(helpers.extractTurns([null, {}, { event: null }, { event: { type: 'user/message' } }]), [])
-})
-
-test('contentText folds a bare string and ignores empty content', () => {
-	assert.equal(helpers.contentText('  spaced  '), 'spaced')
-	assert.equal(helpers.contentText([]), '')
-	assert.equal(helpers.contentText(null), '')
-})
-
-test('sessionTitle prefers the host title and falls back to the first user message', () => {
-	const records = [{ event: { type: 'user/message', message: { content: 'first question' } } }]
-	assert.equal(helpers.sessionTitle({ title: 'Real title' }, records), 'Real title')
-	assert.equal(helpers.sessionTitle({}, records), 'first question')
-	assert.equal(helpers.sessionTitle({}, []), 'untitled session')
-	const long = [{ event: { type: 'user/message', message: { content: 'x'.repeat(200) } } }]
-	assert.equal(helpers.sessionTitle({}, long).length, 61)
-})
-
-test('exportBaseName strips filesystem-hostile characters and keeps a short id', () => {
-	const name = helpers.exportBaseName({ sessionId: 'abcdef1234567890', title: 'a/b:c*d?e"f<g>h|i' }, [])
-	assert.equal(name, 'a_b_c_d_e_f_g_h_i (abcdef12)')
-})
-
-test('sessionMarkdown carries a header and every turn', () => {
-	const summary = { sessionId: 's-1', title: 'Design chat', cwd: 'D:\\work', updatedAt: 0 }
-	const records = [
-		{ event: { type: 'user/message', message: { content: 'question' } } },
-		{ event: { type: 'assistant/message', message: { content: [{ type: 'text', text: 'answer' }] } } }
-	]
-	const md = helpers.sessionMarkdown(summary, records)
-	assert.match(md, /^# Design chat/u)
-	assert.match(md, /Session ID: `s-1`/u)
-	assert.match(md, /Working directory: `D:\\work`/u)
-	assert.match(md, /## User\n\nquestion/u)
-	assert.match(md, /## Assistant\n\nanswer/u)
-})
-
-test('sessionJson is a structured, parseable document', () => {
-	const records = [{ event: { type: 'user/message', message: { content: 'hi' } } }]
-	const parsed = JSON.parse(helpers.sessionJson({ sessionId: 's-2', title: 'T' }, records))
-	assert.equal(parsed.sessionId, 's-2')
-	assert.equal(parsed.title, 'T')
-	assert.deepEqual(parsed.turns, [{ role: 'user', text: 'hi' }])
-	assert.equal(typeof parsed.exportedAt, 'string')
-})
-
-test('truncateToBudget keeps everything under budget and reports the cut otherwise', () => {
-	const parts = ['aaaa', 'bbbb', 'cccc']
-	assert.deepEqual(helpers.truncateToBudget(parts, 100), { text: parts.join('\n\n---\n\n'), truncated: false, kept: 3 })
-	const cut = helpers.truncateToBudget(parts, 5)
-	assert.equal(cut.truncated, true)
-	assert.equal(cut.kept, 1)
-	assert.equal(cut.text, 'aaaa')
-	const none = helpers.truncateToBudget(parts, 1)
-	assert.equal(none.truncated, true)
-	assert.equal(none.text, 'a')
-})
-
-test('buildSynthesisPrompt prepends the instruction and flags truncation', () => {
-	const entries = [
-		{ summary: { sessionId: 'a', title: 'A' }, records: [{ event: { type: 'user/message', message: { content: 'x'.repeat(50) } } }] },
-		{ summary: { sessionId: 'b', title: 'B' }, records: [{ event: { type: 'user/message', message: { content: 'y'.repeat(50) } } }] }
-	]
-	const full = helpers.buildSynthesisPrompt(entries, 100000)
-	assert.equal(full.truncated, false)
-	assert.equal(full.kept, 2)
-	assert.match(full.text, /请完成两件事/u)
-	assert.match(full.text, /# A/u)
-	assert.match(full.text, /# B/u)
-
-	const small = helpers.buildSynthesisPrompt(entries, 40)
-	assert.equal(small.truncated, true)
-	assert.equal(small.kept, 1)
-	assert.match(small.text, /只包含所选中对话的前 1 \/ 2 个/u)
-	assert.doesNotMatch(small.text, /# B/u)
-})
-
-test('visibleRows drops blank and archived rows, filters, and sorts pinned first', () => {
+test('visibleRows drops blank and archived rows, filters, and orders by recency', () => {
 	const snapshot = {
 		items: [
 			{ sessionId: 'blank', blank: true, updatedAt: 999 },
 			{ sessionId: 'old', title: 'Old work', updatedAt: 10 },
 			{ sessionId: 'new', title: 'New work', updatedAt: 30, cwd: 'D:\\proj' },
 			{ sessionId: 'arch', title: 'Archived', updatedAt: 50 },
-			{ sessionId: 'pin', title: 'Pinned old', updatedAt: 5 }
+			{ sessionId: 'older', title: 'Oldest work', updatedAt: 5 }
 		]
 	}
-	const state = { pinnedIds: ['pin'], archivedIds: ['arch'], unreadIds: ['old'] }
+	const state = { archivedIds: ['arch'] }
 	const rows = helpers.visibleRows(snapshot, state, '', false)
-	assert.deepEqual(rows.map((row) => row.sessionId), ['pin', 'new', 'old'])
-	assert.equal(rows[0].pinned, true)
-	assert.equal(rows[2].unread, true)
-	assert.equal(rows[0].title, 'Pinned old')
+	assert.deepEqual(rows.map((row) => row.sessionId), ['new', 'old', 'older'])
+	assert.equal(rows[2].title, 'Oldest work')
 
 	const withArchived = helpers.visibleRows(snapshot, state, '', true)
-	assert.deepEqual(withArchived.map((row) => row.sessionId), ['pin', 'arch', 'new', 'old'])
-	assert.equal(withArchived[1].archived, true)
+	assert.deepEqual(withArchived.map((row) => row.sessionId), ['arch', 'new', 'old', 'older'])
+	assert.equal(withArchived[0].archived, true)
 })
 
 test('visibleRows matches title, working directory, and id', () => {
@@ -232,7 +125,7 @@ test('workspaceLabel reads the final path segment of either separator style', ()
 
 test('groupRows keeps row order inside a group and heads with the busiest workspace', () => {
 	const rows = [
-		{ sessionId: 'a', cwd: 'D:\\alpha', updatedAt: 30, pinned: true },
+		{ sessionId: 'a', cwd: 'D:\\alpha', updatedAt: 30 },
 		{ sessionId: 'b', cwd: 'D:\\beta', updatedAt: 99 },
 		{ sessionId: 'c', cwd: 'D:\\alpha', updatedAt: 10 },
 		{ sessionId: 'd', updatedAt: 5 }

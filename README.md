@@ -5,11 +5,11 @@
 [![node](https://img.shields.io/badge/node-%E2%89%A520-brightgreen.svg)](#开发)
 [![DSH Desktop](https://img.shields.io/badge/DSH%20Desktop-0.9.0-black.svg)](#dsh-session-multiselect)
 
-DSH Web 客户端的**对话多选插件**：一次勾选多个对话，然后批量删除 / Fork / 导出 / 汇总给 AI / 置顶 / 归档。
+DSH Web 客户端的**对话多选插件**：一次勾选多个对话，然后批量删除或归档。
 
 > **Multi-select for DSH Desktop conversations.** A checkbox panel — grouped by workspace, with search,
-> select-all/invert and Shift-range select — that runs batch actions over the official Session contracts
-> (delete / fork / export Markdown+JSON / summarize into a new session / pin / archive / unread).
+> select-all/invert and Shift-range select — whose batch actions are delete and archive, over the
+> official `session.delete` contract and plugin-local archive state.
 > Install as a standard DSH bundle: `dsh plugin --profile web add .` (see [安装](#安装)).
 > No build step, no host-side code, MIT licensed.
 
@@ -72,23 +72,22 @@ DSH Web 客户端的**对话多选插件**：一次勾选多个对话，然后�
 
 **批量操作**
 
+面板只提供两个动作按钮（这是刻意的：按钮越少，误点越少）：
+
 | 操作 | 说明 | 可靠性 |
 | --- | --- | --- |
 | **删除** | 永久删除选中的多个对话及其全部记录。点「删除」后按钮自身会亮起红框、确认框自动滚进视野，二次确认后才调用服务 | 官方 `session.delete` 契约 |
-| **Fork** | 为每个选中对话各 fork 一份（标题自动递增） | 官方 `session.fork` 契约 |
-| **导出 MD** | 每个对话导出为一个 Markdown 文件（含元信息 + 全部用户/助手正文） | 读取会话历史后本地下载 |
-| **导出 JSON** | 结构化导出：`sessionId` / `title` / `cwd` / `turns[]` | 同上 |
-| **汇总给 AI** | 把多个对话正文拼成一份材料，新建一个对话并作为首条消息发出，随后自动打开该对话，让模型做逐条摘要 + 横向对比 | `session.create` + `session.prompt` + `sessions.open` |
-| **标为未读 / 已读** | 在插件面板内标记并持久化，未读行显示圆点 | 插件本地状态 |
-| **置顶 / 取消置顶** | 置顶的对话在面板内排到最前 | 插件本地状态 |
-| **归档 / 取消归档** | 归档的对话默认从面板隐藏（勾选「显示归档」可见） | 插件本地状态 |
+| **归档 / 取消归档** | 一个按钮两个方向：选中项里**全是已归档**时显示「取消归档」，否则显示「归档」。归档的对话默认从面板隐藏（勾选「显示归档」可见） | 插件本地状态 |
 
-### 关于「归档」和「置顶」的重要说明
+> 0.2.0 起移除了 **Fork / 导出 MD / 导出 JSON / 汇总给 AI / 置顶 / 标为未读** 这些按钮，
+> 对应的实现与测试也一并删除（`git revert` 对应提交即可整块找回）。归档做成双向切换，
+> 正是因为面板只剩两个按钮：没有它，「取消归档」在界面上就没有入口了。
 
-DSH 客户端 **没有** host 侧的 archive / pin 契约（原生侧边栏的「未读」也只是工作区插件的
-本地 localStorage 状态，未暴露成服务）。因此本插件的归档 / 置顶 / 未读是**插件自己的持久化状态**：
-它们影响本多选面板的排序与显隐，**不会**改变原生侧边栏的显示。删除、Fork、导出、汇总走的是官方契约，
-对所有界面都生效。
+### 关于「归档」的重要说明
+
+DSH 客户端 **没有** host 侧的 archive 契约（原生侧边栏的「未读」也只是工作区插件的
+本地 localStorage 状态，未暴露成服务）。因此本插件的归档是**插件自己的持久化状态**：
+它影响本多选面板的显隐，**不会**改变原生侧边栏的显示。删除走的是官方契约，对所有界面都生效。
 
 ### 会话列表数据的形状
 
@@ -116,7 +115,7 @@ DSH 客户端 **没有** host 侧的 archive / pin 契约（原生侧边栏的�
 ### 按工作区分组（以及它为什么改动了「顺序」）
 
 分组不是单纯加个标题：它**重排了行的显示顺序**，而 Shift+点击的范围选择、全选/反选走的都是
-「显示顺序」。所以 `visibleRows()` 先按置顶/时间排出基础顺序，`groupRows()` 只做**稳定归组**
+「显示顺序」。所以 `visibleRows()` 先按时间排出基础顺序，`groupRows()` 只做**稳定归组**
 （组内保持基础顺序，组按组内最新时间排，无工作目录的组排最后），面板再把
 `flattenGroups()` 的结果当作唯一的顺序来源 —— 否则 Shift+点击会扫过用户在两击之间根本看不到的行。
 行的 `cwd` 默认不再重复显示（标题已经写了），关掉分组后恢复显示。
@@ -194,14 +193,14 @@ dsh plugin --profile web add .     # 路径含空格时务必在包目录内执�
 lib/index.js      Node half（空实现：本插件没有 host 侧功能）
 lib/client.js     浏览器 bundle：面板、选择模型、批量动作、头部注入（window.__ModuleLoader__ 契约）
 src/index.ts      Node half 源码
-tests/            59 个测试：纯逻辑单测 + 以假 Cordis 上下文挂载真实 bundle + 注入逻辑（含 DOM 桩）
+tests/            48 个测试：纯逻辑单测 + 以假 Cordis 上下文挂载真实 bundle + 注入逻辑（含 DOM 桩）
                   + 对着本机安装的 primitives 真实导出清单做兼容性验证
 tests/browser/    真实浏览器冒烟测试：真 React 18 + 无头 Chromium + 复制自工作区插件的头部 CSS
 ```
 
 ```sh
 npm install                            # 只装 devDependencies（react/react-dom/ws），供测试当 React/WebSocket 源
-npm test                               # = node --test  （59 个文件级测试，约 0.5 秒）
+npm test                               # = node --test  （48 个文件级测试，约 0.4 秒）
 npm run test:browser                   # 真实浏览器冒烟：需要 Chrome/Edge（自动探测路径）
 npm run diag                           # 从桌面应用的 Session Storage 里读出诊断环
 ```
@@ -232,12 +231,11 @@ Node 只要 20+：CDP 客户端优先用 Node 自带的 `WebSocket`（v22 起才
   DSH 若改动该工具栏结构（改了无障碍名称又换了类名），注入会失败 —— 届时按钮自动退到侧边栏底部
   （`sidebar.footer.action`，设置图标左侧），不会消失、也不影响功能。注入还会给工具栏那一行加一个
   限定作用域的 `overflow` 覆盖（否则绝对定位的按钮会被 `overflow:hidden` 裁掉），卸载时该覆盖会被移除。
-- **归档 / 置顶 / 未读是插件本地状态**：DSH 客户端没有 host 侧的 archive / pin 契约（原生侧边栏的
-  「未读」也只是工作区插件的 localStorage 状态），所以这三项只影响本面板的排序与显隐。
-- **汇总有长度上限**：为控制上下文体积，汇总材料默认上限 120000 字符；超出时按整段截断，
-  并在提示词与界面状态里明确标注被截断，不会让模型误以为看到了全部内容。
-- **长会话读取有页数上限**：每个对话最多向上翻 20 页（每页 200 条消息），避免超长日志卡住面板。
+- **归档是插件本地状态**：DSH 客户端没有 host 侧的 archive 契约（原生侧边栏的「未读」也只是
+  工作区插件的 localStorage 状态），所以归档只影响本面板的显隐；删除走官方契约，对所有界面生效。
 - **删除不可撤销**：批量删除走官方永久删除契约，这是设计如此，确认框会明确写出数量。
+- **只有删除和归档两个动作**：Fork / 导出 / 汇总给 AI / 置顶 / 未读在 0.2.0 被移除（含实现与测试）。
+  需要它们时用 `git revert` 回滚对应提交，或在 0.1.0 的 tag/提交上取。
 - **只在 Web 客户端上做过实测**：插件声明 `platform: "web"`；Tauri/其他壳未验证（理论上同构，
   但 `-webkit-app-region` 之类的桌面壳差异没有实测数据）。
 

@@ -1,7 +1,7 @@
 {
   "name": "dsh-session-multiselect",
-  "version": "0.1.0",
-  "description": "DSH web plugin: a multi-select panel for conversations — checkbox list grouped by workspace, search, select-all/invert, Shift range select, then batch delete / fork / export / summarize / unread / pin.",
+  "version": "0.2.0",
+  "description": "DSH web plugin: a multi-select panel for conversations — checkbox list grouped by workspace, search, select-all/invert, Shift range select, then batch delete or archive.",
   "type": "module",
   "license": "MIT",
   "repository": {
