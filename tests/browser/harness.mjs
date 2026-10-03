@@ -425,7 +425,7 @@ const checks = verdict === null ? [] : [
 		`the plugin recorded what it did (${(verdict.diagTrail ?? []).length} notes)`,
 		Array.isArray(verdict.diagTrail)
 			&& verdict.diagTrail.some((line) => line.includes('marks service'))
-			&& verdict.diagTrail.some((line) => line.includes('apply build=17'))
+			&& verdict.diagTrail.some((line) => line.includes('apply build=18'))
 			&& verdict.diagTrail.some((line) => line.includes('inline on'))
 			&& verdict.diagTrail.some((line) => line.includes('inline off'))
 			&& verdict.diagTrail.some((line) => line.includes('panel rendered rows=4'))
