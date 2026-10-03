@@ -35,7 +35,8 @@ DSH Web 客户端的**对话多选插件**：一次勾选多个对话，然后�
 
 ## 功能
 
-**两种选择方式**（入口按钮的行为由记住的模式偏好决定，两边都能切换）
+**两种选择方式**（入口按钮的行为由记住的模式偏好决定；**右键点入口按钮 = 切到另一个模式**，
+所以两种模式永远够得着，不用先找到当前模式里的开关）
 
 内联勾选（默认，仿 DeepSeek 网页版）：
 
@@ -45,6 +46,7 @@ DSH Web 客户端的**对话多选插件**：一次勾选多个对话，然后�
   按钮自己变成「取消归档」「取消置顶」）
 - `Shift + 点击` 按列表显示顺序选范围；`Esc` 退出多选（有未确认的删除时，先取消确认框）
 - 退出时**不留痕迹**：圆圈、被加宽的行内边距、`body` 上的模式类名全部还原
+- 一条会话行都没找到时（这个 DSH 版本的列表结构变了）自动交还给面板，不留在空模式里
 
 面板多选：
 
@@ -109,12 +111,17 @@ DSH Web 客户端的**对话多选插件**：一次勾选多个对话，然后�
 - **找行**：按 `data-row-key` 前缀（`session:`）找，而不是类名 —— 类名带构建哈希，属性还是 id 的来源
 - **画圆圈**：往行里插一个绝对定位的宿主（第一个子节点），并把行的 `padding-inline-start` 从**当前解析值**
   加宽 22px 作为圆圈的道槽（所以原生状态点、标题、时间的排布不变；多层工作区的缩进变量也被算进去了）。
-  退出时两项内联样式按原值还原，`MutationObserver` 保证列表重渲染后圆圈还在（幂等，不会叠两个）
+  加宽之前先把该行钉成 `box-sizing: border-box`：原生会话行**没有**这条声明，而它是 flex item，
+  content-box 下加多少内边距行就宽多少 —— 整个列表比列还宽，侧边栏随即横向滚动（真实窗口里的表现是
+  入口按钮坐标跳到 -226、整条侧边栏内容左移）。退出时三项内联样式按原值还原，
+  `MutationObserver` 保证列表重渲染后圆圈还在（幂等，不会叠两个）
 - **接管点击**：`document` 上的**捕获阶段** click 监听把落在会话行上的手势吃掉（`preventDefault` +
   `stopPropagation`），改成切换勾选 —— 否则原生 `onClick` 会打开那个对话。行内的 `button`（`⋯` 菜单）
   不在接管范围内。操作栏按钮自己那一路不受影响
 - **操作栏**：挂在列表根元素（从注入点向上找到**最近一个真正包含会话行的祖先**，同样不看类名）的底部，
   `position:absolute` + `inset-inline:6px`，不占列表布局；面板与它共用同一份选择状态与同一套批量动作
+- **画不出来就交还给面板**：进入内联模式后 0.9 秒若一条会话行都没找到（这个 DSH 版本的列表结构变了），
+  插件记一条 `inline fallback` 并直接打开面板 —— 否则用户会停在一个没有圆圈、也切不走的模式里
 
 一个真实的教训：模式类名**不能**复用入口按钮自己的 `.dsh-msel-inline`。那个类把元素样式化成 28px 的
 inline-flex 按钮，`body` 一旦戴上它，整个窗口就按一个按钮来排版（无头浏览器里表现为整页宽 112px、
@@ -167,14 +174,17 @@ inline-flex 按钮，`body` 一旦戴上它，整个窗口就按一个按钮来�
 
 插件在 `sessionStorage` 的 `dsh.session.multiselect.diag` 里维护一个**最多 60 条**的事件环：
 `apply build=N … mode=… marks=…` / `marks service subscribed` / `placed` / `not placed` /
-`entry mode=…` / `inline on` / `inline off` / `inline all rows=… selected=…` / `inline range n=…` /
+`entry mode=…`（左键按当前模式）/ `entry other from=…`（右键要另一个模式）/ `contextmenu react` /
+`inline on` / `inline off` / `inline all rows=… selected=…` / `inline range n=…` /
+`inline layout rows=… root=宽/scrollWidth/clientWidth@scrollLeft row0=… host=… body=…`
+（**一句话说明圆圈有没有把侧边栏挤歪**）/ `inline fallback` / `bar mounted` / `bar not mounted` /
 `click document` / `click react`（或 `click react skipped`，说明捕获阶段那一路已经处理过这个手势）/
 `panel open` / `panel rendered rows=N` / `panel error …`，以及每个批量动作的结果：
 `delete service …` / `delete start n=…`（面板或操作栏）/ `delete done ok=… failed=…` /
 `archive … service=ok|missing` / `pin … service=ok|missing` / `mark failed <id> <原因>` /
 `action empty` / `action error …`。
-它只写入本标签页的会话存储、写失败也绝不影响功能，用来回答「点击到底有没有到达按钮、
-模式有没有切换、面板有没有渲染、删除/归档到底报的什么错」这类只能靠现场才能判断的问题。
+它只写入本标签页的会话存储、写失败也绝不影响功能，用来回答「点击到底有没有到达按钮、模式有没有切换、
+圆圈有没有画出来、侧边栏有没有被挤动、删除/归档到底报的什么错」这类只能靠现场才能判断的问题。
 
 ### 跨版本兼容
 
@@ -240,14 +250,14 @@ dsh plugin --profile web add .     # 路径含空格时务必在包目录内执�
 lib/index.js      Node half（空实现：本插件没有 host 侧功能）
 lib/client.js     浏览器 bundle：两种模式、选择模型、批量动作、头部注入与行内圆圈（window.__ModuleLoader__ 契约）
 src/index.ts      Node half 源码
-tests/            60 个测试：纯逻辑单测 + 以假 Cordis 上下文挂载真实 bundle + 注入/圆圈逻辑（含 DOM 桩）
+tests/            62 个测试：纯逻辑单测 + 以假 Cordis 上下文挂载真实 bundle + 注入/圆圈逻辑（含 DOM 桩）
                   + 对着本机安装的 primitives 真实导出清单做兼容性验证
 tests/browser/    真实浏览器冒烟测试：真 React 18 + 无头 Chromium + 复制自工作区插件的头部与行 CSS
 ```
 
 ```sh
 npm install                            # 只装 devDependencies（react/react-dom/ws），供测试当 React/WebSocket 源
-npm test                               # = node --test  （60 个测试，约 0.5 秒）
+npm test                               # = node --test  （62 个测试，约 0.5 秒）
 npm run test:browser                   # 真实浏览器冒烟：需要 Chrome/Edge（自动探测路径）
 npm run diag                           # 从桌面应用的 Session Storage 里读出诊断环
 ```
@@ -284,6 +294,8 @@ Node 只要 20+：CDP 客户端优先用 Node 自带的 `WebSocket`（v22 起才
   限定作用域的 `overflow` 覆盖（否则绝对定位的按钮会被 `overflow:hidden` 裁掉），卸载时该覆盖会被移除。
 - **内联操作栏浮在列表底部**：它 `position:absolute` 挂在列表根元素上，会盖住列表最下面那一行（和
   DeepSeek 网页版一样）。列表可滚动，滚上来即可；不需要时就退出多选模式。
+- **两种模式的入口**：左键按记住的模式走，**右键切到另一个模式**；内联模式的操作栏里有「面板」，
+  面板工具栏里有「内联勾选」，三者改的是同一个偏好。
 - **归档/置顶依赖工作区控制器**：`workspaces` 服务存在时两者都是真实操作（原生列表分组跟着变）；
   服务缺失时归档退回插件本地标记（状态行会写明），置顶则直接报错说明没有该接口。
 - **正在运行的对话不能归档**：这是 host 侧规则，会在状态行里逐行列出被拒绝的 id 与原因。

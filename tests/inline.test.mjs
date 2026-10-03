@@ -781,8 +781,11 @@ test('inline mode draws one tick per session row and leaves no trace', () => {
 		assert.ok(mark !== null, `row ${entry.id} carries a tick host`)
 		assert.equal(mark.parentElement, entry.row, 'the tick sits inside the row it belongs to')
 		// The gutter is reserved out of the row's OWN resolved padding (8px + 22px),
-		// so the status dot, the title, and the time keep their places.
+		// so the status dot, the title, and the time keep their places — and the row
+		// is pinned to border-box first, or a flex-item row would grow by the gutter
+		// and push the list wider than its column (the sidebar then scrolls sideways).
 		assert.equal(entry.row.style.paddingInlineStart, '30px', 'the row reserves the tick gutter')
+		assert.equal(entry.row.style.boxSizing, 'border-box', 'the gutter cannot widen the row')
 		assert.equal(entry.row.style.position, 'relative', 'and becomes the tick’s containing block')
 		const box = mark.children[0]
 		assert.equal(box.getAttribute('role'), 'checkbox', 'the tick is announced as a checkbox')
@@ -807,8 +810,35 @@ test('inline mode draws one tick per session row and leaves no trace', () => {
 		assert.equal(entry.row.getAttribute('data-dsh-msel-selected'), null, 'the selection marker is gone')
 		assert.equal(entry.row.style.paddingInlineStart, undefined, 'the row is back to what the shell rendered')
 		assert.equal(entry.row.style.position, undefined, 'including its positioning')
+		assert.equal(entry.row.style.boxSizing ?? '', '', 'and its box model')
 	}
 	assert.equal(document.body.classList.contains('dsh-msel-picking'), false, 'and the page leaves the mode')
+})
+
+test('inline mode hands over to the panel when there is no row to tick', () => {
+	const doc = installDocument()
+	const storage = installSessionStorage()
+	// A list shaped differently from what the ticks expect: the header is there,
+	// the session rows are not.
+	const ui = makeHeader()
+	document.body.appendChild(ui.header)
+	const timers = []
+	const exports = loadBundle()
+	// The bundle's own window, with a timer that is only recorded — the check runs
+	// when the test says so.
+	globalThis.window.setTimeout = (fn, ms) => { timers.push({ fn, ms }); return timers.length }
+	globalThis.window.clearTimeout = () => {}
+	exports.apply(makeApplyCtx())
+
+	doc.fireClick(exports.existingHost())
+	assert.equal(timers.length, 1, 'entering inline mode schedules one "did anything appear?" check')
+	assert.equal(storage.trail().some((line) => line.includes('inline on')), true)
+	timers[0].fn()
+	// Nothing to tick: the mode the user asked for cannot be drawn, so the plugin
+	// hands over to the panel instead of leaving them with an empty promise.
+	assert.equal(storage.trail().some((line) => line.includes('inline fallback')), true, 'the handover is recorded')
+	assert.equal(storage.trail().some((line) => line.includes('panel open')), true, 'and the panel is what opens')
+	assert.equal(exports.existingBarHost(), null, 'no bar is left behind on a list that has no rows')
 })
 
 test('inline mode takes the row click instead of opening the conversation', () => {

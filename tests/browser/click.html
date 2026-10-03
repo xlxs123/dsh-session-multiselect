@@ -34,8 +34,14 @@
   .headerActions { max-width: 60px; flex: none; align-items: center; gap: 4px; display: flex; overflow: hidden; }
   .headerActions button { width: 28px; height: 28px; background: transparent; border: none; }
   /* The session rows, as the workspace plugin renders them: a 32px flex row whose
-     inline-start padding reserves the leading 16px cell. Inline mode ticks it. */
-  .sessionRow { box-sizing: border-box; display: flex; align-items: center; gap: 0; height: 32px; padding: 0 8px; border-radius: 8px; cursor: pointer; color: #222; }
+     inline-start padding reserves the leading 16px cell. Inline mode ticks it.
+     Deliberately WITHOUT box-sizing: the shell's session-row rule does not set it,
+     so a row that gains padding would grow — which is what pushed the real sidebar
+     sideways until the tick's gutter pinned the row to border-box. */
+  .sessionRow { display: flex; align-items: center; gap: 0; height: 32px; padding: 0 8px; border-radius: 8px; cursor: pointer; color: #222; }
+  /* The list scrolls vertically, and must never move sideways: a row that grew by
+     the tick's gutter would show up right here as scrollWidth > clientWidth. */
+  .sessionList { display: flex; flex-direction: column; overflow-x: hidden; overflow-y: auto; }
   .sessionRow:hover { background: #0000000d; }
   .slot { width: 16px; height: 20px; flex: none; }
   .title { margin: 0 6px 0 4px; font-size: 14px; line-height: 20px; }
@@ -349,6 +355,11 @@ async function drive() {
     return { position: style.position, left: style.left, insetInlineStart: style.insetInlineStart, width: style.width, display: style.display, inlineOffset: host.offsetLeft };
   })());
   record('markHostParent', rows[0].querySelector('[data-dsh-msel-mark]')?.parentElement?.className ?? null);
+  // The gutter must cost the list nothing: the row keeps its column's width, and
+  // the list never gains a horizontal scroll (that was the real sidebar's symptom:
+  // the whole panel slid sideways as soon as the ticks appeared).
+  record('listWidth', { client: document.querySelector('.sessionList').clientWidth, scroll: document.querySelector('.sessionList').scrollWidth });
+  record('rowWidth', round(rows[0].getBoundingClientRect().width));
   // The page itself must be untouched: the body carries only this plugin's own
   // mode class, and — the trap this guards — NOT the entry button's class, whose
   // 28px inline-flex rules would lay the whole window out as one button.
@@ -401,6 +412,26 @@ async function drive() {
   await frame(); await frame();
   record('inlineAfterEscape', barOf() === null && marks().every((mark) => mark === null));
   record('rowPaddingAfterEscape', getComputedStyle(rows[0]).paddingInlineStart);
+  record('boxSizingAfterEscape', getComputedStyle(rows[0]).boxSizing);
+
+  // --- the other mode, from the button's own right-click -------------------
+  // Nothing else is on screen at this point, which is exactly the situation the
+  // gesture exists for: the mode you are not in, without hunting for a switch.
+  const rightClick = () => button.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: cx, clientY: cy }));
+  rightClick();
+  await frame(); await frame();
+  record('modalAfterRightClick', document.querySelector('[data-fake-modal]') !== null);
+  record('ticksAfterRightClick', marks().filter((mark) => mark !== null).length);
+  document.querySelector('[data-fake-mask]')?.click();
+  await frame(); await frame();
+  // …and the same gesture comes back the other way.
+  rightClick();
+  await frame(); await frame();
+  record('ticksAfterRightClickBack', marks().filter((mark) => mark !== null).length);
+  record('modalAfterRightClickBack', document.querySelector('[data-fake-modal]') !== null);
+  document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  await frame(); await frame();
+  record('inlineClosedAgain', barOf() === null);
 
   // --- the panel, reached through the bar's mode switch --------------------
   button.click(); // inline mode on again

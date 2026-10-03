@@ -992,6 +992,46 @@ test('the entry action follows the stored mode, and both switches move it', () =
 	assert.equal(store.getSnapshot().mode, 'inline')
 	assert.equal(panel.getSnapshot().open, false, 'the dialog closes as the ticks take over')
 	assert.equal(inline.getSnapshot().active, true)
+
+	// And the one gesture that is always available: right-clicking the entry button
+	// asks for whichever mode is NOT current.
+	world.face.actions.entryOther()
+	assert.equal(store.getSnapshot().mode, 'panel', 'from inline it offers the panel')
+	assert.equal(panel.getSnapshot().open, true)
+	world.face.actions.entryOther()
+	assert.equal(store.getSnapshot().mode, 'inline', 'from the panel it offers the ticks')
+	assert.equal(inline.getSnapshot().active, true)
+})
+
+test('both entry buttons offer the other mode on right-click', () => {
+	const world = mount()
+	const calls = []
+	const props = {
+		...world.props,
+		actions: {
+			...world.face.actions,
+			entry: () => { calls.push('entry') },
+			entryOther: () => { calls.push('other') }
+		}
+	}
+	const rightClick = () => {
+		const event = { preventDefault() { event.prevented = true } }
+		return event
+	}
+	// The footer view (the fallback entry) …
+	const footer = world.react.withHooks('MultiSelectEntry', () => world.exports.MultiSelectEntry(props))
+	const footerButton = footer.props.children[0].props.children
+	assert.equal(typeof footerButton.props.onContextMenu, 'function', 'the footer button handles right-click')
+	const footerEvent = rightClick()
+	footerButton.props.onContextMenu(footerEvent)
+	assert.deepEqual(calls, ['other'], 'the right-click asks for the other mode')
+	assert.equal(footerEvent.prevented, true, 'and the browser’s own menu does not open')
+
+	// … and the injected header button do the same thing.
+	const inlineView = world.react.withHooks('InlineEntry', () => world.exports.InlineEntry(props))
+	const inlineButton = inlineView.props.children[0].props.children
+	inlineButton.props.onContextMenu(rightClick())
+	assert.deepEqual(calls, ['other', 'other'], 'the header button offers it too')
 })
 
 test('the inline bar carries the count, all three actions, and the way back', () => {

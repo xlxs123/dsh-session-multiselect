@@ -357,6 +357,14 @@ const checks = verdict === null ? [] : [
 		`the tick sits left of the title and is centred in the 32px row (x ${verdict.markBox?.[0]}, centre offset ${verdict.markVerticallyCentered})`,
 		verdict.markLeftOfTitle === true && Math.abs(verdict.markVerticallyCentered ?? 99) <= 1
 	],
+	[
+		`the gutter costs the list nothing (row ${verdict.rowWidth} in a ${verdict.listWidth?.client}px column, scrollWidth ${verdict.listWidth?.scroll})`,
+		verdict.rowWidth === verdict.listWidth?.client && verdict.listWidth?.scroll <= verdict.listWidth?.client + 1
+	],
+	[
+		`and the row is handed back on exit (padding ${verdict.rowPaddingAfterEscape}, box-sizing ${verdict.boxSizingAfterEscape})`,
+		verdict.rowPaddingAfterEscape === '8px' && verdict.boxSizingAfterEscape === 'content-box'
+	],
 	['the tick is the topmost element at its own centre, so a click reaches it', verdict.markOnTop === true],
 	[
 		`the page keeps its own layout while ticking (body ${verdict.bodyStyle?.display}, ${verdict.bodyStyle?.width}, mode class ${verdict.bodyStyle?.picking})`,
@@ -384,6 +392,14 @@ const checks = verdict === null ? [] : [
 	],
 	['Esc leaves inline mode, taking the ticks and the bar with it', verdict.inlineAfterEscape === true],
 	// --- the panel ---
+	[
+		`right-clicking the entry button offers the other mode (dialog ${verdict.modalAfterRightClick}, ticks left ${verdict.ticksAfterRightClick})`,
+		verdict.modalAfterRightClick === true && verdict.ticksAfterRightClick === 0
+	],
+	[
+		`and the same gesture comes back (ticks ${verdict.ticksAfterRightClickBack}, dialog ${verdict.modalAfterRightClickBack})`,
+		verdict.ticksAfterRightClickBack === 4 && verdict.modalAfterRightClickBack === false && verdict.inlineClosedAgain === true
+	],
 	['the bar switches to panel mode and opens the dialog', verdict.modalAfterPanelSwitch === true],
 	[
 		`the panel heads one group per workspace (${(verdict.groupHeadings ?? []).map((name) => JSON.stringify(name)).join(' | ')})`,
@@ -425,9 +441,12 @@ const checks = verdict === null ? [] : [
 		`the plugin recorded what it did (${(verdict.diagTrail ?? []).length} notes)`,
 		Array.isArray(verdict.diagTrail)
 			&& verdict.diagTrail.some((line) => line.includes('marks service'))
-			&& verdict.diagTrail.some((line) => line.includes('apply build=18'))
+			&& verdict.diagTrail.some((line) => line.includes('apply build=19'))
 			&& verdict.diagTrail.some((line) => line.includes('inline on'))
 			&& verdict.diagTrail.some((line) => line.includes('inline off'))
+			&& verdict.diagTrail.some((line) => line.includes('inline layout'))
+			&& verdict.diagTrail.some((line) => line.includes('bar mounted'))
+			&& verdict.diagTrail.some((line) => line.includes('entry other'))
 			&& verdict.diagTrail.some((line) => line.includes('panel rendered rows=4'))
 			&& verdict.diagTrail.some((line) => line.includes('delete done ok=4'))
 	],
