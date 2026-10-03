@@ -30,10 +30,21 @@ DSH Web 客户端的**对话多选插件**：一次勾选多个对话，然后�
   `sessions` 服务、`workspaces` 服务（归档/置顶）、`locale` 字典、客户端 store —— 不改动 DSH 原生代码
 - 注入失败也**不会失去功能**：定位不到目标时入口自动退回侧边栏底部，且退回后仍然是同样的两种模式
 
-兼容性：在 **DSH Desktop 0.9.0 与 0.10.0**（Harness 0.1.x / 0.1.7-rc.2）的 Web 客户端上开发并实测（Windows）。
-插件只依赖官方已有的 `slots` / `locale` / `sessions` 三个服务并**可选地**使用 `workspaces`；
+兼容性：在 **DSH Desktop 0.9.0 / 0.10.0**（Harness 0.1.x / 0.1.7-rc.2）与 **DeepSeek Harness
+nightly**（Harness **0.2.0-rc.2**）的 Web 客户端上开发并实测（Windows）。插件只依赖官方已有的
+`slots` / `locale` / `sessions` 三个服务并**可选地**使用 `workspaces`；
 对会随版本变化的**装饰性契约**（图标导出名、Button 的 variant、带哈希的类名）一律做
 「多候选名 + 自带兜底」，见下文「跨版本兼容」。
+
+插件**不声明任何 `@deepseek-ai/dsh*` 的 peerDependency**，所以 0.2 起的安装期/启动期兼容性闸门
+（只校验这类 peer）不会拦它 —— 换版本时不需要 `allow-version` 豁免。0.2.0-rc.2 上逐项核对过的契约：
+`Modal` / `Tooltip` / `Button` / `Input`、五个图标导出名（`IconSearchOutline*` / `IconChecklistOutline*` /
+`IconLoadingOutline*` / `IconPinOutline*` / `IconCheckOutline*`）、`sidebar.footer.action` /
+`settings.general.item` / `plugins.item` 三个 slot、`workspaces` 的
+`pinSession` / `unpinSession` / `archiveSession` / `unarchiveSession` 与
+`pinnedSessionIds` / `archivedSessionIds` 快照、以及会话行的 `data-row-key="session:<id>"`。
+（0.2 把搜索按钮的中文 aria-label 挪进了语言包，所以按无障碍名匹配可能落空 —— 兜底的
+`button[class*="_searchButton"]` 那一级在本版上仍然命中。）
 
 ## 功能
 
