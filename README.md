@@ -12,9 +12,11 @@ DSH Web 客户端的**对话多选插件**：一次勾选多个对话，然后�
 - **面板多选**：弹出完整面板 —— 可按工作区分组、可搜索、可 Shift 范围选择、可整组勾选
 
 > **Multi-select for DSH Desktop conversations.** Two ways to select: ticks drawn into the session list
-> itself (DeepSeek-web style) or a searchable, workspace-grouped panel. Batch actions are delete,
-> archive and pin, over the official `session.delete` contract and the workspace controller's
-> archive/pin commands. Install as a standard DSH bundle: `dsh plugin --profile web add .`
+> itself (DeepSeek-web style) or a searchable, workspace-grouped panel — switchable from the entry
+> button's right-click, from either mode's own UI, and from two rows in the official Settings
+> (General, and the plugin's page under Plugins). Batch actions are delete, archive and pin, over the
+> official `session.delete` contract and the workspace controller's archive/pin commands.
+> Install as a standard DSH bundle: `dsh plugin --profile web add .`
 > (see [安装](#安装)). No build step, no host-side code, MIT licensed.
 
 **入口与做法**：DSH 原生侧边栏的会话列表由 `@deepseek-ai/dsh-client-ui-workspace` 以 `single` slot 独占渲染，
@@ -61,6 +63,18 @@ DSH Web 客户端的**对话多选插件**：一次勾选多个对话，然后�
 - 已选计数实时显示；已置顶的行排在最前（和原生列表的置顶分组一致），并带「已置顶」标签
 - 工具栏里的「内联勾选」一键切回圆圈模式（弹窗关闭、圆圈立刻出现）
 
+**在哪切换模式**
+
+| 位置 | 做法 |
+| --- | --- |
+| **设置 → 通用** | 「多选对话的方式」一行，两个按钮：**内联勾选** / **面板多选**（与主题、语言那些行排在一起） |
+| **设置 → 插件 → 对话多选** | 这个插件自己的设置页，同样两个按钮；卡片上的一行说明写着当前用的是哪一种 |
+| 入口按钮 | **左键**按当前模式；**右键**切到另一个模式 |
+| 内联模式的操作栏 | 「面板」按钮 |
+| 面板工具栏 | 「内联勾选」按钮 |
+
+五处改的都是同一个偏好（持久化在 `dsh.session.multiselect.v1`），所以不会有"两个地方说法不一致"。
+
 **入口位置**
 
 入口按钮注入在**会话列表工具栏那一行、搜索控件左侧**，与原生控件同一行，间距与原生按钮一致。
@@ -103,6 +117,22 @@ DSH Web 客户端的**对话多选插件**：一次勾选多个对话，然后�
 
 > 0.2.0 移除了 **Fork / 导出 MD / 导出 JSON / 汇总给 AI / 置顶 / 标为未读**（`git revert` 对应提交可整块找回）；
 > 0.3.0 把**置顶**以真实服务调用的形式加回来，并把**归档**从「插件本地标记」升级成工作区控制器的命令。
+
+### 设置页（官方 Settings 里）
+
+插件往官方设置里贡献两处，都只注册、不碰别人的 DOM：
+
+- `settings.general.item`：**通用**页里的一行（和「外观」「语言」同属一个列表）。行标题 + 一行说明 +
+  两个大按钮（选中项用 shell 自己的 token 高亮）。样式是插件自己的 class（shell 的类名带构建哈希），
+  但间距、圆角、分隔线、颜色变量都照抄旁边那些行，所以看起来是原生的
+- `plugins.item`：**插件**页里属于本插件的一张卡片与它的页面。这个 slot 的约定是两种视图：
+  `view: "summary"` 返回一句话（卡片上的说明，写明当前是哪一种模式），其余情况返回设置页本身。
+  插件的显示名通过注册项的 `label()` 给出（走本插件的字典，随语言变）
+
+两处注册都各自包在 try/catch 里：某个 DSH 版本去掉其中一个 slot，代价应该是少一行设置，
+而不是整个插件挂不上。诊断环会写 `settings row registered` / `settings page registered`，
+以及渲染时的 `settings row rendered` / `settings page rendered view=…`——
+「设置里到底有没有这一行」只能从运行中的窗口判断。
 
 ### 内联勾选模式是怎么实现的
 
@@ -175,6 +205,8 @@ inline-flex 按钮，`body` 一旦戴上它，整个窗口就按一个按钮来�
 插件在 `sessionStorage` 的 `dsh.session.multiselect.diag` 里维护一个**最多 60 条**的事件环：
 `apply build=N … mode=… marks=…` / `marks service subscribed` / `placed` / `not placed` /
 `entry mode=…`（左键按当前模式）/ `entry other from=…`（右键要另一个模式）/ `contextmenu react` /
+`settings row registered` / `settings page registered` / `settings row rendered` /
+`settings page rendered view=…` / `settings mode=…`（在设置里改模式）/
 `inline on` / `inline off` / `inline all rows=… selected=…` / `inline range n=…` /
 `inline layout rows=… root=宽/scrollWidth/clientWidth@scrollLeft row0=… host=… body=…`
 （**一句话说明圆圈有没有把侧边栏挤歪**）/ `inline fallback` / `bar mounted` / `bar not mounted` /
@@ -250,14 +282,14 @@ dsh plugin --profile web add .     # 路径含空格时务必在包目录内执�
 lib/index.js      Node half（空实现：本插件没有 host 侧功能）
 lib/client.js     浏览器 bundle：两种模式、选择模型、批量动作、头部注入与行内圆圈（window.__ModuleLoader__ 契约）
 src/index.ts      Node half 源码
-tests/            62 个测试：纯逻辑单测 + 以假 Cordis 上下文挂载真实 bundle + 注入/圆圈逻辑（含 DOM 桩）
+tests/            64 个测试：纯逻辑单测 + 以假 Cordis 上下文挂载真实 bundle + 注入/圆圈逻辑（含 DOM 桩）
                   + 对着本机安装的 primitives 真实导出清单做兼容性验证
 tests/browser/    真实浏览器冒烟测试：真 React 18 + 无头 Chromium + 复制自工作区插件的头部与行 CSS
 ```
 
 ```sh
 npm install                            # 只装 devDependencies（react/react-dom/ws），供测试当 React/WebSocket 源
-npm test                               # = node --test  （62 个测试，约 0.5 秒）
+npm test                               # = node --test  （64 个测试，约 0.5 秒）
 npm run test:browser                   # 真实浏览器冒烟：需要 Chrome/Edge（自动探测路径）
 npm run diag                           # 从桌面应用的 Session Storage 里读出诊断环
 ```
@@ -295,7 +327,8 @@ Node 只要 20+：CDP 客户端优先用 Node 自带的 `WebSocket`（v22 起才
 - **内联操作栏浮在列表底部**：它 `position:absolute` 挂在列表根元素上，会盖住列表最下面那一行（和
   DeepSeek 网页版一样）。列表可滚动，滚上来即可；不需要时就退出多选模式。
 - **两种模式的入口**：左键按记住的模式走，**右键切到另一个模式**；内联模式的操作栏里有「面板」，
-  面板工具栏里有「内联勾选」，三者改的是同一个偏好。
+  面板工具栏里有「内联勾选」，**设置 → 通用**与**设置 → 插件 → 对话多选**里各有一组按钮 ——
+  六处改的是同一个偏好。
 - **归档/置顶依赖工作区控制器**：`workspaces` 服务存在时两者都是真实操作（原生列表分组跟着变）；
   服务缺失时归档退回插件本地标记（状态行会写明），置顶则直接报错说明没有该接口。
 - **正在运行的对话不能归档**：这是 host 侧规则，会在状态行里逐行列出被拒绝的 id 与原因。
