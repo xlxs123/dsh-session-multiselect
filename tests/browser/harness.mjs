@@ -363,7 +363,9 @@ function contrast(colors) {
 	return Math.abs(lightness(text) - lightness(surface))
 }
 
-const checks = verdict === null ? [] : [	['the injected host is attached to the search line', verdict.hostAttached === true],
+const checks = verdict === null ? [] : [
+	// --- the injected button, in the session-list header ---
+	['the injected host is attached to the search line', verdict.hostAttached === true],
 	['the entry button is rendered', verdict.buttonRendered === true],
 	['the button is a 28px box, like the native icons', verdict.buttonBoxWidth === 28],
 	[
@@ -375,67 +377,8 @@ const checks = verdict === null ? [] : [	['the injected host is attached to the 
 		verdict.gapToMagnifier === verdict.nativeGapMagnifierToAction
 	],
 	[`the button is the topmost element at its own centre (found ${verdict.elementFromPoint})`, verdict.hitTestReachesButton === true],
-	// --- inline mode: the ticks and the bar ---
-	[
-		`a real click turns on inline mode: a bar over the list (${String(verdict.inlineBarParent)}) and one tick per row (${verdict.inlineMarkCount})`,
-		verdict.inlineBarAttached === true && verdict.inlineBarParent === 'sidebar' && verdict.inlineMarkCount === 4
-	],
-	[
-		`the tick reserves its gutter out of the row's own padding (${verdict.rowPaddingStart}, restored to ${verdict.rowPaddingAfterEscape} on exit)`,
-		verdict.rowPaddingStart === '30px' && verdict.rowPaddingAfterEscape === '8px'
-	],
-	[
-		`the tick sits left of the title and is centred in the 32px row (x ${verdict.markBox?.[0]}, centre offset ${verdict.markVerticallyCentered})`,
-		verdict.markLeftOfTitle === true && Math.abs(verdict.markVerticallyCentered ?? 99) <= 1
-	],
-	[
-		`the gutter costs the list nothing (row ${verdict.rowWidth} in a ${verdict.listWidth?.client}px column, scrollWidth ${verdict.listWidth?.scroll})`,
-		verdict.rowWidth === verdict.listWidth?.client && verdict.listWidth?.scroll <= verdict.listWidth?.client + 1
-	],
-	[
-		`and the row is handed back on exit (padding ${verdict.rowPaddingAfterEscape}, box-sizing ${verdict.boxSizingAfterEscape})`,
-		verdict.rowPaddingAfterEscape === '8px' && verdict.boxSizingAfterEscape === 'content-box'
-	],
-	['the tick is the topmost element at its own centre, so a click reaches it', verdict.markOnTop === true],
-	[
-		`the page keeps its own layout while ticking (body ${verdict.bodyStyle?.display}, ${verdict.bodyStyle?.width}, mode class ${verdict.bodyStyle?.picking})`,
-		verdict.bodyStyle?.display === 'block'
-			&& verdict.bodyStyle?.picking === true
-			&& verdict.bodyStyle?.hasEntryClass === false
-	],
-	[
-		`clicking a row ticks it (${JSON.stringify(verdict.tickedAfterRowClick)}) instead of opening it (${verdict.openedAfterRowClick} navigations)`,
-		JSON.stringify(verdict.tickedAfterRowClick) === JSON.stringify(['false', 'true', 'false', 'false'])
-			&& verdict.openedAfterRowClick === 0
-	],
-	[
-		`the tick is a toggle too (${JSON.stringify(verdict.tickedAfterMarkClick)})`,
-		JSON.stringify(verdict.tickedAfterMarkClick) === JSON.stringify(['false', 'false', 'false', 'false'])
-	],
-	[
-		`select-all takes every row on screen (${verdict.barCount})`,
-		JSON.stringify(verdict.tickedAfterSelectAll) === JSON.stringify(['true', 'true', 'true', 'true'])
-			&& verdict.barCount === '已选 4'
-	],
-	[
-		`the bar's text is readable on its own surface (${verdict.barColors?.color} on ${verdict.barColors?.background})`,
-		contrast(verdict.barColors) > 0.25
-	],
-	[
-		`pin reaches the workspace service (${(verdict.pinnedIds ?? []).join(', ')}) and the button flips`,
-		JSON.stringify(verdict.pinnedIds) === JSON.stringify(['a', 'b', 'c', 'd']) && verdict.pinButtonFlip === true
-	],
-	['Esc leaves inline mode, taking the ticks and the bar with it', verdict.inlineAfterEscape === true],
 	// --- the panel ---
-	[
-		`right-clicking the entry button offers the other mode (dialog ${verdict.modalAfterRightClick}, ticks left ${verdict.ticksAfterRightClick})`,
-		verdict.modalAfterRightClick === true && verdict.ticksAfterRightClick === 0
-	],
-	[
-		`and the same gesture comes back (ticks ${verdict.ticksAfterRightClickBack}, dialog ${verdict.modalAfterRightClickBack})`,
-		verdict.ticksAfterRightClickBack === 4 && verdict.modalAfterRightClickBack === false && verdict.inlineClosedAgain === true
-	],
-	['the bar switches to panel mode and opens the dialog', verdict.modalAfterPanelSwitch === true],
+	['a real click opens the dialog', verdict.modalAfterClick === true],
 	[
 		`the panel heads one group per workspace (${(verdict.groupHeadings ?? []).map((name) => JSON.stringify(name)).join(' | ')})`,
 		Array.isArray(verdict.groupHeadings)
@@ -453,38 +396,40 @@ const checks = verdict === null ? [] : [	['the injected host is attached to the 
 		`one click on a heading takes the whole workspace (${JSON.stringify(verdict.selectedAfterGroupClick)})`,
 		JSON.stringify(verdict.selectedAfterGroupClick) === JSON.stringify(['true', 'true', 'false', 'false'])
 	],
-	['the mask closes it again', verdict.modalClosedAgain === true],
-	['a click dispatched at the button centre opens the panel', verdict.modalAfterDispatchedClick === true],
-	// --- back to inline, and one batch through the bar ---
 	[
-		`the panel switches back to inline mode (${verdict.ticksAfterPanelSwitch} ticks, dialog closed)`,
-		verdict.inlineAfterPanelSwitch === true && verdict.ticksAfterPanelSwitch === 4
+		`the page keeps its own layout (body ${verdict.bodyStyle?.display}, ${verdict.bodyStyle?.width}, entry class ${String(verdict.bodyStyle?.hasEntryClass)})`,
+		verdict.bodyStyle?.display === 'block' && verdict.bodyStyle?.hasEntryClass === false
 	],
 	[
-		`archive reaches the workspace service (${(verdict.archivedIds ?? []).join(', ')}) and the button flips`,
-		JSON.stringify(verdict.archivedIds) === JSON.stringify(['a', 'b', 'c', 'd']) && verdict.archiveButtonFlip === true
+		`the action row is delete / archive / pin (${(verdict.actionLabels ?? []).join(' / ')})`,
+		JSON.stringify(verdict.actionLabels) === JSON.stringify(['删除', '归档', '置顶'])
 	],
 	[
-		`deleting from the bar asks first (${verdict.deletedBeforeConfirm} deletions before the confirmation)`,
+		`pin reaches the workspace service (${(verdict.pinnedIds ?? []).join(', ')}) and the button flips (${String(verdict.pinButtonFlip)})`,
+		JSON.stringify(verdict.pinnedIds) === JSON.stringify(['a', 'b']) && verdict.pinButtonFlip === true
+	],
+	[
+		`deleting asks first (${verdict.deletedBeforeConfirm} deletions before the confirmation)`,
 		verdict.confirmVisible === true && verdict.deletedBeforeConfirm === 0
 	],
 	[
 		`and then deletes every ticked conversation (${(verdict.deletedIds ?? []).join(', ')})`,
-		JSON.stringify(verdict.deletedIds) === JSON.stringify(['a', 'b', 'c', 'd'])
+		JSON.stringify(verdict.deletedIds) === JSON.stringify(['a', 'b'])
+	],
+	['the mask closes it again', verdict.modalClosedAgain === true],
+	[
+		`a click dispatched at the button centre opens the panel (hit ${String(verdict.elementAtReopen)}${verdict.reopenReachedButton === true ? '' : ', NOT the button'})`,
+		verdict.reopenReachedButton === true && verdict.modalAfterDispatchedClick === true
 	],
 	[
 		`the plugin recorded what it did (${(verdict.diagTrail ?? []).length} notes)`,
 		Array.isArray(verdict.diagTrail)
 			&& verdict.diagTrail.some((line) => line.includes('marks service'))
-			&& verdict.diagTrail.some((line) => line.includes('apply build=22'))
+			&& verdict.diagTrail.some((line) => line.includes('apply build=23'))
 			&& verdict.diagTrail.some((line) => line.includes('chrome=primitives'))
-			&& verdict.diagTrail.some((line) => line.includes('inline on'))
-			&& verdict.diagTrail.some((line) => line.includes('inline off'))
-			&& verdict.diagTrail.some((line) => line.includes('inline layout'))
-			&& verdict.diagTrail.some((line) => line.includes('bar mounted'))
-			&& verdict.diagTrail.some((line) => line.includes('entry other'))
+			&& verdict.diagTrail.some((line) => line.includes('panel open'))
 			&& verdict.diagTrail.some((line) => line.includes('panel rendered rows=4'))
-			&& verdict.diagTrail.some((line) => line.includes('delete done ok=4'))
+			&& verdict.diagTrail.some((line) => line.includes('delete done ok=2'))
 	],
 	['the page reported no errors', (verdict.errors ?? []).length === 0],
 	// --- the same bundle with no platform packages seeded (the 0.2 shape) ---
@@ -493,22 +438,18 @@ const checks = verdict === null ? [] : [	['the injected host is attached to the 
 		fallbackVerdict?.fallbackButtonRendered === true && fallbackVerdict?.fallbackIcon === true
 	],
 	[
-		`and inline mode still works there (${String(fallbackVerdict?.fallbackTicks)} ticks, bar ${String(fallbackVerdict?.fallbackBar)})`,
-		fallbackVerdict?.fallbackTicks === 4 && fallbackVerdict?.fallbackBar === true
-	],
-	[
 		`the panel opens as this bundle's own dialog (${String(fallbackVerdict?.fallbackDialogLabel)})`,
 		fallbackVerdict?.fallbackDialog === true
 			&& fallbackVerdict?.fallbackDialogLabel === '多选对话'
 			&& fallbackVerdict?.fallbackPanelInside === true
 	],
 	[
-		`with this bundle's own controls, and the same workspace grouping (${String(fallbackVerdict?.fallbackGroups)} groups)`,
+		`with this bundle's own controls and the same grouping (${String(fallbackVerdict?.fallbackGroups)} groups)`,
 		fallbackVerdict?.fallbackOwnInput === true && fallbackVerdict?.fallbackGroups === 3
 	],
 	[
-		`the mode is persisted by the bundle's own store (${String(fallbackVerdict?.fallbackPersisted)})`,
-		fallbackVerdict?.fallbackPersisted === 'panel'
+		`its own store persists the grouping preference (${String(fallbackVerdict?.fallbackPersisted)})`,
+		fallbackVerdict?.fallbackPersisted === true
 	],
 	['the local dialog closes on its mask', fallbackVerdict?.fallbackDialogClosed === true],
 	['and that page reported no errors either', (fallbackVerdict?.errors ?? ['none']).length === 0]

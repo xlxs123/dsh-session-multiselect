@@ -501,19 +501,9 @@ test('every locale key the panel asks for exists in both dictionaries', () => {
 		return params === undefined ? key : `${key}${JSON.stringify(params)}`
 	}
 	world.renderPanelBody({ t: record })
-	// The bar over the list asks for copy too: a key only one surface knows is a
-	// raw key in front of the user.
-	world.react.withHooks('InlineBar', () => world.exports.InlineBar({
-		t: record,
-		hooks: world.face.hooks,
-		handlers: {
-			onToggleAll() {}, onDelete() {}, onCancel() {}, onConfirm() {},
-			onArchive() {}, onPin() {}, onPanel() {}, onExit() {}
-		}
-	}))
 	assert.deepEqual([...asked].filter((key) => !(key in dicts.zh)), [], 'keys missing from the zh dictionary')
 	assert.deepEqual([...asked].filter((key) => !(key in dicts.en)), [], 'keys missing from the en dictionary')
-	assert.ok(asked.size > 20, `the surfaces should ask for a real set of labels, saw ${String(asked.size)}`)
+	assert.ok(asked.size > 10, `the panel should ask for a real set of labels, saw ${String(asked.size)}`)
 })
 
 test('apply mounts with its own dialog when the platform seeds no primitives', () => {
@@ -545,15 +535,13 @@ test('apply mounts with its own dialog when the platform seeds no primitives', (
 	assert.equal(modal.props.open, false, 'closed until the button is clicked')
 	assert.equal(modal.props.title, 'panel.title')
 
-	// The store fallback keeps the preference the entry button reads, with the same
+	// The store fallback keeps the preferences the panel reads, with the same
 	// surface: getSnapshot / subscribe / actions.
 	const store = face.hooks.store
 	assert.equal(typeof store.getSnapshot, 'function')
 	assert.equal(typeof store.subscribe, 'function')
-	assert.equal(store.getSnapshot().mode, 'inline', 'the fallback store still seeds its defaults')
-	store.actions.setMode('panel')
-	assert.equal(store.getSnapshot().mode, 'panel', 'and its actions write through')
-	assert.deepEqual(Object.keys(store.getSnapshot()).sort(), ['archivedIds', 'groupByWorkspace', 'inlineProven', 'mode', 'pinnedIds'])
+	assert.equal(store.getSnapshot().groupByWorkspace, true, 'the fallback store seeds its defaults')
+	assert.deepEqual(Object.keys(store.getSnapshot()).sort(), ['archivedIds', 'groupByWorkspace', 'inlineProven', 'pinnedIds'])
 })
 
 test('a renamed or missing icon falls back to its own artwork instead of failing the mount', () => {
@@ -599,24 +587,12 @@ test('store setArchived adds and removes ids, and nothing else', () => {
 	store.actions.setArchived(['b'], false)
 	assert.deepEqual([...store.getSnapshot().archivedIds], ['a'])
 	// The pin mark has no local fallback (it is either a real pin or nothing), so
-	// the plugin store holds: the fallback archive mark, the mode preference, the
-	// grouping preference, and the proof flag.
-	assert.deepEqual(Object.keys(store.getSnapshot()).sort(), ['archivedIds', 'groupByWorkspace', 'inlineProven', 'mode', 'pinnedIds'])
+	// the plugin store holds: the fallback archive mark, the grouping preference,
+	// and the proof flag.
+	assert.deepEqual(Object.keys(store.getSnapshot()).sort(), ['archivedIds', 'groupByWorkspace', 'inlineProven', 'pinnedIds'])
 	assert.deepEqual(store.getSnapshot().pinnedIds, [], 'pinning never writes a private mark')
 })
 
-test('the store remembers which mode the entry button drives', () => {
-	const world = mount()
-	const store = world.face.hooks.store
-	assert.equal(store.getSnapshot().mode, 'inline', 'inline ticks are the default')
-	store.actions.setMode('panel')
-	assert.equal(store.getSnapshot().mode, 'panel')
-	store.actions.setMode('inline')
-	assert.equal(store.getSnapshot().mode, 'inline')
-	// Exactly two modes: anything else is inline, so the field cannot drift.
-	store.actions.setMode('nonsense')
-	assert.equal(store.getSnapshot().mode, 'inline')
-})
 
 test('deleteSessions reports per-session failures without aborting the batch', async () => {
 	const world = mount({
@@ -923,11 +899,6 @@ test('the panel offers three actions, and the last two work in both directions',
 	const actionRow = body.props.children[3]
 	assert.deepEqual(actionRow.props.children.map((button) => button.props.children),
 		['action.delete', 'action.archive', 'action.pin'], 'delete, archive, pin — nothing else')
-	// The toolbar carries the way into the other mode (tooltipped, so the label
-	// sits on the button inside the tooltip wrapper).
-	const switchButton = body.props.children[0].props.children[3]
-	assert.equal(switchButton.props.children.props.children, 'mode.inline',
-		'the panel can switch the entry button over to inline ticks')
 
 	// Archiving hides the rows (the panel lists unarchived rows only), and the
 	// button flips to the reverse direction for the archived selection.
@@ -1001,143 +972,11 @@ test('a build without a pinning API says so instead of pretending', async () => 
 	world.renderPanelBody().props.children[3].props.children[2].props.onClick()
 	await flush()
 	assert.deepEqual(world.face.hooks.marks.getSnapshot().pinnedIds, [], 'nothing was pinned')
-	assert.match(world.face.hooks.store.getSnapshot().mode, /inline/u, 'and nothing else changed')
+	assert.deepEqual(world.face.hooks.store.getSnapshot().archivedIds, [], 'and nothing else changed')
 })
 
-test('the entry action follows the stored mode, and both switches move it', () => {
-	const world = mount()
-	const store = world.face.hooks.store
-	const panel = world.face.hooks.panel
-	const inline = world.face.hooks.inline
 
-	// Inline is the default, so the entry button turns the ticks on — it does not
-	// open a dialog, and pressing it again leaves the mode.
-	world.face.actions.entry()
-	assert.equal(inline.getSnapshot().active, true, 'the ticks are on')
-	assert.equal(panel.getSnapshot().open, false, 'and no dialog was opened')
-	world.face.actions.entry()
-	assert.equal(inline.getSnapshot().active, false, 'the same button turns them off')
 
-	// The bar's switch: panel mode, and the dialog the entry button now opens.
-	world.face.actions.usePanel()
-	assert.equal(store.getSnapshot().mode, 'panel')
-	assert.equal(panel.getSnapshot().open, true)
-	assert.equal(inline.getSnapshot().active, false)
-	world.face.actions.entry()
-	assert.equal(panel.getSnapshot().open, true, 'in panel mode the entry opens the dialog')
-	assert.equal(inline.getSnapshot().active, false, 'and never the ticks')
-
-	// The panel's switch: back to inline ticks, and the dialog closes with them.
-	world.face.actions.useInline()
-	assert.equal(store.getSnapshot().mode, 'inline')
-	assert.equal(panel.getSnapshot().open, false, 'the dialog closes as the ticks take over')
-	assert.equal(inline.getSnapshot().active, true)
-
-	// And the one gesture that is always available: right-clicking the entry button
-	// asks for whichever mode is NOT current.
-	world.face.actions.entryOther()
-	assert.equal(store.getSnapshot().mode, 'panel', 'from inline it offers the panel')
-	assert.equal(panel.getSnapshot().open, true)
-	world.face.actions.entryOther()
-	assert.equal(store.getSnapshot().mode, 'inline', 'from the panel it offers the ticks')
-	assert.equal(inline.getSnapshot().active, true)
-})
-
-test('both entry buttons offer the other mode on right-click', () => {
-	const world = mount()
-	const calls = []
-	const props = {
-		...world.props,
-		actions: {
-			...world.face.actions,
-			entry: () => { calls.push('entry') },
-			entryOther: () => { calls.push('other') }
-		}
-	}
-	const rightClick = () => {
-		const event = { preventDefault() { event.prevented = true } }
-		return event
-	}
-	// The footer view (the fallback entry) …
-	const footer = world.react.withHooks('MultiSelectEntry', () => world.exports.MultiSelectEntry(props))
-	const footerButton = footer.props.children[0].props.children
-	assert.equal(typeof footerButton.props.onContextMenu, 'function', 'the footer button handles right-click')
-	const footerEvent = rightClick()
-	footerButton.props.onContextMenu(footerEvent)
-	assert.deepEqual(calls, ['other'], 'the right-click asks for the other mode')
-	assert.equal(footerEvent.prevented, true, 'and the browser’s own menu does not open')
-
-	// … and the injected header button do the same thing.
-	const inlineView = world.react.withHooks('InlineEntry', () => world.exports.InlineEntry(props))
-	const inlineButton = inlineView.props.children[0].props.children
-	inlineButton.props.onContextMenu(rightClick())
-	assert.deepEqual(calls, ['other', 'other'], 'the header button offers it too')
-})
-
-test('the inline bar carries the count, all three actions, and the way back', () => {
-	const world = mount()
-	const hooks = world.face.hooks
-	const t = (key, params) => (params === undefined ? key : `${key}${JSON.stringify(params)}`)
-	const calls = []
-	const handlers = {
-		onToggleAll: () => { calls.push('all') },
-		onDelete: () => { calls.push('delete') },
-		onCancel: () => { calls.push('cancel') },
-		onConfirm: () => { calls.push('confirm') },
-		onArchive: () => { calls.push('archive') },
-		onPin: () => { calls.push('pin') },
-		onPanel: () => { calls.push('panel') },
-		onExit: () => { calls.push('exit') }
-	}
-	const bar = () => world.exports.InlineBar({ t, hooks, handlers })
-
-	// Nothing ticked: the bar says so, and every batch action is inert.
-	const empty = bar()
-	assert.equal(empty.props.children[0].props.children[0].props.children, 'bar.selected{"n":0}')
-	assert.deepEqual(empty.props.children[2].props.children.map((button) => button.props.children),
-		['action.delete', 'action.archive', 'action.pin'], 'the same three actions as the panel')
-	assert.equal(empty.props.children[2].props.children.every((button) => button.props.disabled), true,
-		'they wait for a selection')
-	// The top line still works with nothing ticked: the mode switch and the exit.
-	empty.props.children[0].props.children[2].props.onClick()
-	empty.props.children[0].props.children[3].props.onClick()
-	assert.deepEqual(calls, ['panel', 'exit'])
-
-	// Two ticked, one of them pinned: the pin button reads as its own reverse.
-	hooks.pick.set({ ids: ['a', 'b'] })
-	hooks.marks.set({ pinnedIds: ['a'], archivedIds: [], real: true })
-	const mixed = bar()
-	assert.equal(mixed.props.children[0].props.children[0].props.children, 'bar.selected{"n":2}')
-	const actions = mixed.props.children[2].props.children
-	assert.deepEqual(actions.map((button) => button.props.children), ['action.delete', 'action.archive', 'action.pin'])
-	assert.equal(actions.every((button) => button.props.disabled), false, 'a selection enables them')
-
-	// Both ticked and both pinned: one button, the other direction — the same rule
-	// the archive button follows.
-	hooks.pick.set({ ids: ['a', 'b'] })
-	hooks.marks.set({ pinnedIds: ['a', 'b'], archivedIds: ['a', 'b'], real: true })
-	const all = bar()
-	assert.deepEqual(all.props.children[2].props.children.map((button) => button.props.children),
-		['action.delete', 'action.unarchive', 'action.unpin'])
-	all.props.children[2].props.children[1].props.onClick()
-	all.props.children[2].props.children[2].props.onClick()
-	assert.deepEqual(calls.slice(2), ['archive', 'pin'], 'the bar drives the same batch actions as the panel')
-
-	// The confirmation replaces the action line and says what it will destroy.
-	hooks.inline.set({ active: true, busy: false, confirming: true, status: null })
-	const confirming = bar()
-	assert.match(confirming.props.children[1].props.children[0].props.children, /confirm\.delete/u)
-	assert.deepEqual(confirming.props.children[2].props.children.map((button) => button.props.children),
-		['confirm.yes', 'confirm.no'])
-	confirming.props.children[2].props.children[0].props.onClick()
-	assert.equal(calls.at(-1), 'confirm')
-
-	// A report from a finished batch lands in the bar, and Esc-state is readable.
-	hooks.inline.set({ active: true, busy: false, confirming: false, status: { text: 'status.pinned{"n":2}', tone: 'info' } })
-	assert.equal(bar().props.children[4].props.children, 'status.pinned{"n":2}')
-	hooks.inline.set({ active: true, busy: true, confirming: false, status: null })
-	assert.equal(bar().props.children[3].props.children, 'busy.working')
-})
 
 test('searching filters the rows and reports an empty result', () => {
 	const world = mount({

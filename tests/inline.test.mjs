@@ -685,23 +685,19 @@ test('the document-level trigger drives the entry without a React click', () => 
 	const host = exports.existingHost()
 	assert.ok(host !== null, 'the inline button was placed')
 	const clicks = doc.listeners.filter((entry) => entry.type === 'click')
-	// Two click triggers: the row ticks of inline mode, and the entry button. Both
-	// listen in the capture phase, which is the point — it runs before any handler
-	// above the button (in another plugin's React root) could consume the gesture.
-	assert.equal(clicks.length, 2, 'the inline ticks and the entry button both listen')
-	assert.equal(clicks.every((entry) => entry.capture === true), true, 'both listen in the capture phase')
+	// One click trigger: the entry button. It listens in the capture phase, which is
+	// the point — it runs before any handler above the button (in another plugin's
+	// React root) could consume the gesture.
+	assert.equal(clicks.length, 1, 'the entry button listens for clicks')
+	assert.equal(clicks.every((entry) => entry.capture === true), true, 'in the capture phase')
 
 	// A click elsewhere must not do anything.
 	doc.fireClick(ui.searchButton)
-	assert.equal(storage.trail().some((line) => line.includes('inline on')), false, 'the magnifier is not the trigger')
+	assert.equal(storage.trail().some((line) => line.includes('panel open')), false, 'the magnifier is not the trigger')
 	// A click on the injected button reaches the entry action, whatever React does.
-	// The default mode is inline ticks, so that is what the press turns on.
 	doc.fireClick(host)
 	assert.equal(storage.trail().some((line) => line.includes('click document')), true, 'the click was seen at the document')
-	assert.equal(storage.trail().some((line) => line.includes('inline on')), true, 'and it turned inline mode on')
-	// Pressing it again leaves the mode, so one button toggles it.
-	doc.fireClick(host)
-	assert.equal(storage.trail().some((line) => line.includes('inline off')), true, 'a second press leaves inline mode')
+	assert.equal(storage.trail().some((line) => line.includes('panel open')), true, 'and it opened the panel')
 })
 
 test('a press that never becomes a click still drives the entry', () => {
@@ -714,7 +710,7 @@ test('a press that never becomes a click still drives the entry', () => {
 
 	const host = exports.existingHost()
 	assert.ok(host !== null, 'the inline button was placed')
-	const opened = () => storage.trail().some((line) => line.includes('inline on'))
+	const opened = () => storage.trail().some((line) => line.includes('panel open'))
 
 	// The reported failure exactly: the press lands on the button, Chromium never
 	// generates the click (the gesture turned into a drag), and the button looks
@@ -723,7 +719,7 @@ test('a press that never becomes a click still drives the entry', () => {
 	assert.equal(opened(), false, 'the press alone does nothing')
 	doc.fire('pointerup', host, { x: 158, y: 164 })
 	assert.equal(storage.trail().some((line) => line.includes('up open')), true, 'the release runs the entry action')
-	assert.equal(opened(), true, 'and inline mode is on')
+	assert.equal(opened(), true, 'and the panel reports itself open')
 
 	// A release on the button after pressing somewhere else is not a click on it.
 	doc.fire('pointerdown', ui.searchButton, { x: 190, y: 164 })
@@ -748,7 +744,7 @@ test('apply mounts an observer and tears the inline host down on dispose', () =>
 	bundle.apply(ctx)
 	assert.equal(observers.length, 1, 'one MutationObserver watches for the session list')
 	assert.equal(bundle.existingHost() !== null, true, 'the inline host was placed during mount')
-	assert.equal(doc.listeners.length, 5, 'the document triggers (ticks click + keydown, entry click + pointerdown + pointerup) are registered')
+	assert.equal(doc.listeners.length, 3, 'the document triggers (click + pointerdown + pointerup) are registered')
 	assert.equal(doc.listeners.every((entry) => entry.capture === true), true, 'all listen in the capture phase')
 
 	const teardown = disposes.find((entry) => entry.label.includes('inline host teardown'))
@@ -759,152 +755,8 @@ test('apply mounts an observer and tears the inline host down on dispose', () =>
 	assert.equal(bundle.existingHost(), null, 'the injected host is removed')
 })
 
-// --- inline mode: the ticks and the bar -------------------------------------
-
-/** A layout where the rows report a resolved inline-start padding of 8px. */
 const rowLayout = { computedStyle: () => ({ paddingInlineStart: '8px', position: 'static' }) };
 
-test('inline mode draws one tick per session row and leaves no trace', () => {
-	installDocument()
-	const list = makeSessionList(['a', 'b'])
-	document.body.appendChild(list.root)
-	const exports = loadBundle({ layout: rowLayout })
 
-	const painted = exports.paintInlineMarks(new Set(['b']))
-	assert.deepEqual(painted, ['a', 'b'], 'the ids come back in paint order — that is what "all" means here')
-	assert.equal(document.body.classList.contains('dsh-msel-picking'), true, 'the page knows inline mode is on')
-	// The body must NOT carry the entry button's own class: that one styles a 28px
-	// inline-flex button, so the window would be laid out as a single button.
-	assert.equal(document.body.classList.contains('dsh-msel-inline'), false, 'the body is not styled as the button')
-	for (const entry of list.rows) {
-		const mark = entry.row.querySelector('[data-dsh-msel-mark]')
-		assert.ok(mark !== null, `row ${entry.id} carries a tick host`)
-		assert.equal(mark.parentElement, entry.row, 'the tick sits inside the row it belongs to')
-		// The gutter is reserved out of the row's OWN resolved padding (8px + 22px),
-		// so the status dot, the title, and the time keep their places — and the row
-		// is pinned to border-box first, or a flex-item row would grow by the gutter
-		// and push the list wider than its column (the sidebar then scrolls sideways).
-		assert.equal(entry.row.style.paddingInlineStart, '30px', 'the row reserves the tick gutter')
-		assert.equal(entry.row.style.boxSizing, 'border-box', 'the gutter cannot widen the row')
-		assert.equal(entry.row.style.position, 'relative', 'and becomes the tick’s containing block')
-		const box = mark.children[0]
-		assert.equal(box.getAttribute('role'), 'checkbox', 'the tick is announced as a checkbox')
-		assert.equal(box.getAttribute('data-selected'), entry.id === 'b' ? 'true' : 'false')
-		assert.equal(entry.row.getAttribute('data-dsh-msel-selected'), entry.id === 'b' ? 'true' : 'false')
-		assert.equal(exports.closestRow(entry.title), entry.row, 'a row is found from anything inside it')
-	}
 
-	// Idempotent: a pass after any DOM churn repaints the same rows, and neither
-	// stacks a second tick nor widens the gutter again.
-	exports.paintInlineMarks(new Set(['a', 'b']))
-	assert.deepEqual(exports.sessionRows().map((entry) => entry.id), ['a', 'b'])
-	for (const entry of list.rows) {
-		assert.equal(entry.row.querySelectorAll('[data-dsh-msel-mark]').length, 1, 'exactly one tick per row')
-		assert.equal(entry.row.style.paddingInlineStart, '30px', 'the gutter is not widened twice')
-		assert.equal(entry.row.querySelector('[data-dsh-msel-mark]').children[0].getAttribute('data-selected'), 'true')
-	}
 
-	exports.clearInlineMarks()
-	for (const entry of list.rows) {
-		assert.equal(entry.row.querySelector('[data-dsh-msel-mark]'), null, 'the tick is gone')
-		assert.equal(entry.row.getAttribute('data-dsh-msel-selected'), null, 'the selection marker is gone')
-		assert.equal(entry.row.style.paddingInlineStart, undefined, 'the row is back to what the shell rendered')
-		assert.equal(entry.row.style.position, undefined, 'including its positioning')
-		assert.equal(entry.row.style.boxSizing ?? '', '', 'and its box model')
-	}
-	assert.equal(document.body.classList.contains('dsh-msel-picking'), false, 'and the page leaves the mode')
-})
-
-test('inline mode hands over to the panel when there is no row to tick', () => {
-	const doc = installDocument()
-	const storage = installSessionStorage()
-	// A list shaped differently from what the ticks expect: the header is there,
-	// the session rows are not.
-	const ui = makeHeader()
-	document.body.appendChild(ui.header)
-	const timers = []
-	const exports = loadBundle()
-	// The bundle's own window, with a timer that is only recorded — the check runs
-	// when the test says so.
-	globalThis.window.setTimeout = (fn, ms) => { timers.push({ fn, ms }); return timers.length }
-	globalThis.window.clearTimeout = () => {}
-	exports.apply(makeApplyCtx())
-
-	doc.fireClick(exports.existingHost())
-	assert.equal(timers.length, 1, 'entering inline mode schedules one "did anything appear?" check')
-	assert.equal(storage.trail().some((line) => line.includes('inline on')), true)
-	timers[0].fn()
-	// Nothing to tick: the mode the user asked for cannot be drawn, so the plugin
-	// hands over to the panel instead of leaving them with an empty promise.
-	assert.equal(storage.trail().some((line) => line.includes('inline fallback')), true, 'the handover is recorded')
-	assert.equal(storage.trail().some((line) => line.includes('panel open')), true, 'and the panel is what opens')
-	assert.equal(exports.existingBarHost(), null, 'no bar is left behind on a list that has no rows')
-})
-
-test('inline mode takes the row click instead of opening the conversation', () => {
-	const doc = installDocument()
-	const storage = installSessionStorage()
-	const list = makeSessionList(['a', 'b', 'c'])
-	document.body.appendChild(list.root)
-	const exports = loadBundle({ layout: rowLayout })
-	exports.apply(makeApplyCtx())
-
-	const tickOf = (index) => list.rows[index].row.querySelector('[data-dsh-msel-mark]')?.children[0] ?? null
-	// The default mode is inline ticks, so the entry button turns them on.
-	doc.fireClick(exports.existingHost())
-	assert.equal(storage.trail().some((line) => line.includes('inline on')), true, 'the entry button turned inline mode on')
-	assert.ok(tickOf(0) !== null, 'the rows got their ticks')
-
-	// A click on a row is consumed before it can reach the shell's own handler —
-	// which would open that conversation and lose the selection.
-	const first = doc.fireClick(list.rows[0].title)
-	assert.equal(first.defaultPrevented, true, 'the row click is consumed')
-	assert.equal(first.propagationStopped, true, 'and it does not travel on to React')
-	assert.equal(tickOf(0).getAttribute('data-selected'), 'true', 'the tick flipped')
-	assert.equal(list.rows[0].row.getAttribute('data-dsh-msel-selected'), 'true')
-	// Clicking it again unticks it, so the row is its own toggle.
-	doc.fireClick(list.rows[0].title)
-	assert.equal(tickOf(0).getAttribute('data-selected'), 'false')
-
-	// The row's own buttons keep working: the actions menu is not a tick.
-	const menu = doc.fireClick(list.rows[1].menu)
-	assert.equal(menu.defaultPrevented, false, 'the row menu is left alone')
-	assert.equal(tickOf(1).getAttribute('data-selected'), 'false', 'and did not tick that row')
-
-	// Shift+click sweeps the range between the anchor and the clicked row.
-	doc.fireClick(list.rows[0].title)
-	doc.fireClick(list.rows[2].title, {}, { shiftKey: true })
-	assert.deepEqual([0, 1, 2].map((index) => tickOf(index).getAttribute('data-selected')), ['true', 'true', 'true'])
-})
-
-test('inline mode hangs the action bar on the list, and Esc leaves the mode', () => {
-	const doc = installDocument()
-	const storage = installSessionStorage()
-	const list = makeSessionList(['a', 'b'])
-	document.body.appendChild(list.root)
-	const exports = loadBundle({ layout: rowLayout })
-	exports.apply(makeApplyCtx())
-	assert.equal(exports.findListRoot(list.parts.searchButton), list.root, 'the list root is found from the header')
-
-	doc.fireClick(exports.existingHost())
-	const host = exports.existingBarHost()
-	assert.ok(host !== null, 'the bar host is attached')
-	assert.equal(host.parentElement, list.root, 'and it belongs to the session list, not to the page')
-	assert.equal(host.style.position, 'absolute', 'out of flow, so the list keeps its layout')
-	assert.equal(host.style.bottom, '6px', 'hung at the bottom of the list')
-	assert.equal(host.style.insetInlineEnd, '6px', 'and inset from both sides')
-	// The bar needs the list as its containing block, and the list gets it back.
-	assert.equal(list.root.style.position, 'relative', 'the list became the containing block')
-	// Placement is idempotent: the pass after any DOM churn reuses this host.
-	assert.equal(exports.ensureBarHost(list.root), host, 'the same host is reused')
-	assert.equal(list.root.querySelectorAll('[data-dsh-msel-bar]').length, 1, 'exactly one bar host per list')
-
-	// Esc leaves the mode and takes both the ticks and the bar with it. (The bar's
-	// own buttons are covered where they are built: node --test cannot run React.)
-	const escape = doc.fire('keydown', list.rows[0].title, {}, { key: 'Escape' })
-	assert.equal(escape.defaultPrevented, true, 'Esc is consumed by the mode, not by the app')
-	assert.equal(storage.trail().some((line) => line.includes('inline off')), true, 'inline mode is off')
-	assert.equal(exports.existingBarHost(), null, 'the bar is gone')
-	assert.equal(list.rows[0].row.querySelector('[data-dsh-msel-mark]'), null, 'the ticks are gone')
-	assert.equal(list.root.style.position ?? '', '', 'and the list’s own positioning is handed back')
-})

@@ -108,14 +108,6 @@ test('visibleRows lifts pinned rows above recency, the way DSH lists them', () =
 	assert.deepEqual(archived.map((row) => row.sessionId), ['newest', 'middle'])
 })
 
-test('parseRowKey reads the session id out of a row key and nothing else', () => {
-	assert.equal(helpers.parseRowKey('session:abc-123'), 'abc-123')
-	assert.equal(helpers.parseRowKey('session:'), null, 'an empty id is not a row')
-	assert.equal(helpers.parseRowKey('project:abc'), null, 'project rows are not sessions')
-	assert.equal(helpers.parseRowKey(undefined), null)
-	assert.equal(helpers.parseRowKey(''), null)
-})
-
 test('markStatusText names what really happened, partial failures included', () => {
 	const asked = []
 	const t = (key, params) => {

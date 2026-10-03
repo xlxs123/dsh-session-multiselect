@@ -358,129 +358,8 @@ async function drive() {
   button.click();
   await frame(); await frame();
 
-  // --- inline mode: the ticks and the bar ---------------------------------
-  const barOf = () => document.querySelector('[data-dsh-msel-bar]');
-  const barButton = (label) => [...(barOf()?.querySelectorAll('button') ?? [])].find((node) => node.textContent === label) ?? null;
-  const rows = [...document.querySelectorAll('[data-row-key^="session:"]')];
-  const marks = () => rows.map((row) => row.querySelector('.dsh-msel-mark'));
-  const ticked = () => marks().map((mark) => mark?.getAttribute('data-selected') ?? null);
-
-  const bar = barOf();
-  record('inlineBarAttached', bar !== null);
-  record('inlineBarParent', bar?.parentElement?.id ?? null);
-  record('inlineMarkCount', marks().filter((mark) => mark !== null).length);
-  // The gutter is reserved out of the row's own padding (8px + 22px), so the
-  // shell's status dot, title, and time keep their places.
-  record('rowPaddingStart', getComputedStyle(rows[0]).paddingInlineStart);
-  const markBox = box(marks()[0].getBoundingClientRect());
-  const titleBox = box(rows[0].querySelector('.title').getBoundingClientRect());
-  const rowBox = box(rows[0].getBoundingClientRect());
-  record('markBox', markBox);
-  record('rowBox', rowBox);
-  record('rowComputed', (() => {
-    const style = getComputedStyle(rows[0]);
-    return { position: style.position, paddingInlineStart: style.paddingInlineStart, display: style.display };
-  })());
-  record('markHostComputed', (() => {
-    const host = rows[0].querySelector('[data-dsh-msel-mark]');
-    if (host === null) return null;
-    const style = getComputedStyle(host);
-    return { position: style.position, left: style.left, insetInlineStart: style.insetInlineStart, width: style.width, display: style.display, inlineOffset: host.offsetLeft };
-  })());
-  record('markHostParent', rows[0].querySelector('[data-dsh-msel-mark]')?.parentElement?.className ?? null);
-  // The gutter must cost the list nothing: the row keeps its column's width, and
-  // the list never gains a horizontal scroll (that was the real sidebar's symptom:
-  // the whole panel slid sideways as soon as the ticks appeared).
-  record('listWidth', { client: document.querySelector('.sessionList').clientWidth, scroll: document.querySelector('.sessionList').scrollWidth });
-  record('rowWidth', round(rows[0].getBoundingClientRect().width));
-  // The page itself must be untouched: the body carries only this plugin's own
-  // mode class, and — the trap this guards — NOT the entry button's class, whose
-  // 28px inline-flex rules would lay the whole window out as one button.
-  record('bodyStyle', (() => {
-    const style = getComputedStyle(document.body);
-    return {
-      display: style.display,
-      width: style.width,
-      picking: document.body.classList.contains('dsh-msel-picking'),
-      hasEntryClass: document.body.classList.contains('dsh-msel-inline')
-    };
-  })());
-  record('markLeftOfTitle', markBox[0] + markBox[2] <= titleBox[0]);
-  record('markVerticallyCentered', round(markBox[1] + markBox[3] / 2 - (rowBox[1] + rowBox[3] / 2)));
-  record('markOnTop', (() => {
-    const node = document.elementFromPoint(markBox[0] + markBox[2] / 2, markBox[1] + markBox[3] / 2);
-    return node !== null && (node.classList.contains('dsh-msel-mark') || node.parentElement?.classList.contains('dsh-msel-markHost'));
-  })());
-  record('elementAtMark', (() => {
-    const node = document.elementFromPoint(markBox[0] + markBox[2] / 2, markBox[1] + markBox[3] / 2);
-    return node === null ? null : `${node.tagName.toLowerCase()}.${String(node.className).split(' ')[0]}${node.parentElement === null ? '' : ` < ${node.parentElement.tagName.toLowerCase()}.${String(node.parentElement.className).split(' ')[0]}`}`;
-  })());
-
-  // A click on the row's own title ticks it — and the row's own click handler,
-  // which would open that conversation, never runs.
-  rows[1].querySelector('.title').dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-  await frame();
-  record('tickedAfterRowClick', ticked());
-  record('openedAfterRowClick', window.__smokeOpened.length);
-  // The tick itself is a toggle too.
-  marks()[1].click();
-  await frame();
-  record('tickedAfterMarkClick', ticked());
-
-  // 全选 takes every row on screen.
-  barButton('全选').click();
-  await frame();
-  record('tickedAfterSelectAll', ticked());
-  record('barCount', barOf().querySelector('.dsh-msel-barCount').textContent);
-  // The bar's own colours: a surface token that a build does not ship must not
-  // fall back to a light default under dark-theme text (that made the bar
-  // unreadable in DSH 0.2, where only the layered tokens exist).
-  record('barColors', (() => {
-    const style = getComputedStyle(barOf().querySelector('.dsh-msel-bar'));
-    return { color: style.color, background: style.backgroundColor };
-  })());
-
-  // 置顶 is the workspace controller's command — not a private mark — and the
-  // button flips to its own reverse once the selection carries the mark.
-  barButton('置顶').click();
-  await frame(); await frame();
-  record('pinnedIds', workspaces.calls.pinned.slice());
-  record('pinButtonFlip', [...barOf().querySelectorAll('button')].map((node) => node.textContent).includes('取消置顶'));
-
-  // Esc leaves the mode and takes the ticks and the bar with it.
-  document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-  await frame(); await frame();
-  record('inlineAfterEscape', barOf() === null && marks().every((mark) => mark === null));
-  record('rowPaddingAfterEscape', getComputedStyle(rows[0]).paddingInlineStart);
-  record('boxSizingAfterEscape', getComputedStyle(rows[0]).boxSizing);
-
-  // --- the other mode, from the button's own right-click -------------------
-  // Nothing else is on screen at this point, which is exactly the situation the
-  // gesture exists for: the mode you are not in, without hunting for a switch.
-  const rightClick = () => button.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: cx, clientY: cy }));
-  rightClick();
-  await frame(); await frame();
-  record('modalAfterRightClick', document.querySelector('[data-fake-modal]') !== null);
-  record('ticksAfterRightClick', marks().filter((mark) => mark !== null).length);
-  document.querySelector('[data-fake-mask]')?.click();
-  await frame(); await frame();
-  // …and the same gesture comes back the other way.
-  rightClick();
-  await frame(); await frame();
-  record('ticksAfterRightClickBack', marks().filter((mark) => mark !== null).length);
-  record('modalAfterRightClickBack', document.querySelector('[data-fake-modal]') !== null);
-  document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-  await frame(); await frame();
-  record('inlineClosedAgain', barOf() === null);
-
-  // --- the panel, reached through the bar's mode switch --------------------
-  button.click(); // inline mode on again
-  await frame(); await frame();
-  barButton('面板').click();
-  await frame(); await frame();
-  record('modalAfterPanelSwitch', document.querySelector('[data-fake-modal]') !== null);
-
-  // ...and does the open panel really lay the conversations out by workspace?
+  // --- the panel: layout, grouping, and one whole-workspace click -----------
+  record('modalAfterClick', document.querySelector('[data-fake-modal]') !== null);
   const groups = [...document.querySelectorAll('.dsh-msel-group')];
   const headingText = (group) => group.querySelector('.dsh-msel-groupName')?.textContent ?? '';
   record('groupHeadings', groups.map(headingText));
@@ -493,10 +372,36 @@ async function drive() {
     }
     return count;
   }));
+  // The page itself must be untouched: the entry button's own class styles a 28px
+  // control and must never end up on the body (that laid the whole window out as
+  // one button once).
+  record('bodyStyle', (() => {
+    const style = getComputedStyle(document.body);
+    return { display: style.display, width: style.width, hasEntryClass: document.body.classList.contains('dsh-msel-inline') };
+  })());
   // A whole workspace in one click, through the real React handler.
   groups[0]?.click();
   await frame(); await frame();
   record('selectedAfterGroupClick', [...document.querySelectorAll('.dsh-msel-row')].map((row) => row.getAttribute('data-selected')));
+
+  // 置顶 is the workspace controller's command — not a private mark — and the
+  // button flips to its own reverse once the selection carries the mark.
+  const actions = [...document.querySelectorAll('.dsh-msel-actions button')];
+  const actionNamed = (label) => actions.find((node) => node.textContent === label) ?? null;
+  record('actionLabels', actions.map((node) => node.textContent));
+  actionNamed('置顶')?.click();
+  await frame(); await frame();
+  record('pinnedIds', workspaces.calls.pinned.slice());
+  record('pinButtonFlip', [...document.querySelectorAll('.dsh-msel-actions button')].map((node) => node.textContent).includes('取消置顶'));
+
+  // Deleting asks first, then reaches the service once per id.
+  actionNamed('删除')?.click();
+  await frame();
+  record('confirmVisible', document.querySelector('.dsh-msel-confirm') !== null);
+  record('deletedBeforeConfirm', window.__smokeDeleted.length);
+  document.querySelector('.dsh-msel-confirm .dsh-msel-danger')?.click();
+  await frame(); await frame();
+  record('deletedIds', window.__smokeDeleted.slice());
 
   // Close it the way a user does — through the mask — so React really unmounts
   // the portal, then click the button again at its centre with a dispatched
@@ -505,34 +410,17 @@ async function drive() {
   document.querySelector('[data-fake-mask]')?.click();
   await frame(); await frame();
   record('modalClosedAgain', document.querySelector('[data-fake-modal]') === null);
-
-  const dispatchTarget = document.elementFromPoint(cx, cy) ?? button;
-  dispatchTarget.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, clientX: cx, clientY: cy }));
+  // The button's current centre: the panel's open/close cycle may have scrolled
+  // the header, so the coordinates measured before it opened can be stale.
+  const reopenBox = box(button.getBoundingClientRect());
+  const rcx = reopenBox[0] + reopenBox[2] / 2;
+  const rcy = reopenBox[1] + reopenBox[3] / 2;
+  const dispatchTarget = document.elementFromPoint(rcx, rcy) ?? button;
+  record('elementAtReopen', dispatchTarget === null ? null : `${dispatchTarget.tagName.toLowerCase()}.${String(dispatchTarget.className).split(' ')[0]}`);
+  record('reopenReachedButton', dispatchTarget === button || button.contains(dispatchTarget));
+  dispatchTarget.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, clientX: rcx, clientY: rcy }));
   await frame(); await frame();
   record('modalAfterDispatchedClick', document.querySelector('[data-fake-modal]') !== null);
-
-  // --- back to inline through the panel's own switch, then a batch ---------
-  const switchButton = [...document.querySelectorAll('.dsh-msel-toolbar button')].find((node) => node.textContent === '内联勾选');
-  switchButton?.click();
-  await frame(); await frame();
-  record('inlineAfterPanelSwitch', barOf() !== null && document.querySelector('[data-fake-modal]') === null);
-  record('ticksAfterPanelSwitch', marks().filter((mark) => mark !== null).length);
-
-  barButton('全选').click();
-  await frame();
-  barButton('归档').click();
-  await frame(); await frame();
-  record('archivedIds', workspaces.calls.archived.slice());
-  record('archiveButtonFlip', [...barOf().querySelectorAll('button')].map((node) => node.textContent).includes('取消归档'));
-
-  // Deleting from the bar asks first, then reaches the service once per id.
-  barButton('删除').click();
-  await frame();
-  record('confirmVisible', barOf().textContent.includes('永久删除'));
-  record('deletedBeforeConfirm', window.__smokeDeleted.length);
-  barButton('永久删除').click();
-  await frame(); await frame();
-  record('deletedIds', window.__smokeDeleted.slice());
 }
 
 /**
@@ -551,16 +439,9 @@ async function driveWithoutPrimitives(exports) {
   record('fallbackIcon', button === null ? null : button.querySelector('svg') !== null);
   if (button === null) return;
 
-  // Inline mode is the default: one tick per row, and a bar over the list.
+  // The dialog is this bundle's own: a portal with role="dialog", the panel
+  // inside it, this bundle's own input control, and the same grouping.
   button.click();
-  await frame(); await frame();
-  const rows = [...document.querySelectorAll('[data-row-key^="session:"]')];
-  record('fallbackTicks', rows.filter((row) => row.querySelector('.dsh-msel-mark') !== null).length);
-  record('fallbackBar', document.querySelector('[data-dsh-msel-bar]') !== null);
-
-  // The other mode, and this time the dialog is the bundle's own: a portal with
-  // role="dialog", the panel inside it, and the bundle's own input control.
-  button.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
   await frame(); await frame();
   const dialog = document.querySelector('.dsh-msel-modal[role="dialog"]');
   record('fallbackDialog', dialog !== null);
@@ -568,10 +449,10 @@ async function driveWithoutPrimitives(exports) {
   record('fallbackPanelInside', dialog?.querySelector('.dsh-msel-root') !== null);
   record('fallbackOwnInput', dialog?.querySelector('input.dsh-msel-input') !== null);
   record('fallbackGroups', dialog?.querySelectorAll('.dsh-msel-group').length ?? 0);
-  // The preference the entry button reads is persisted by the bundle's own store.
+  // The preference the panel reads is persisted by the bundle's own store.
   record('fallbackPersisted', (() => {
     try {
-      return JSON.parse(localStorage.getItem('dsh.session.multiselect.v1') ?? '{}').mode ?? null;
+      return JSON.parse(localStorage.getItem('dsh.session.multiselect.v1') ?? '{}').groupByWorkspace ?? null;
     } catch {
       return 'unreadable';
     }
