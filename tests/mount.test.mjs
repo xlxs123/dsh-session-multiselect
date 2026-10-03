@@ -1128,7 +1128,7 @@ test('the official settings offer both modes, and the plugin card names the one 
 	assert.equal(typeof page.entry.options.label, 'function', 'the Plugins card takes its label from the plugin')
 	// The card's title is translated, so a build that switches language shows it in
 	// that language rather than as a raw key.
-	assert.equal(page.entry.options.label(), world.dictionaries.get('sessionMultiselect').zh['settings.title'])
+	assert.equal(page.entry.options.label(), world.dictionaries.get('sessionMultiselect').zh['settings.cardTitle'])
 
 	const t = (key) => key
 	const face = page.entry.options.inject()
