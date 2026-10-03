@@ -1,7 +1,7 @@
 {
   "name": "dsh-session-multiselect",
-  "version": "0.2.0",
-  "description": "DSH web plugin: a multi-select panel for conversations — checkbox list grouped by workspace, search, select-all/invert, Shift range select, then batch delete or archive.",
+  "version": "0.3.0",
+  "description": "DSH web plugin: two ways to multi-select conversations — ticks drawn into the session list itself (DeepSeek-web style) or a workspace-grouped panel — then batch delete, archive or pin.",
   "type": "module",
   "license": "MIT",
   "repository": {
@@ -19,7 +19,10 @@
     "deepseek-harness",
     "dsh-desktop",
     "multi-select",
-    "batch-operations"
+    "batch-operations",
+    "archive",
+    "pin",
+    "session-list"
   ],
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",

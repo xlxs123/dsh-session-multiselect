@@ -344,7 +344,47 @@ const checks = verdict === null ? [] : [
 		verdict.gapToMagnifier === verdict.nativeGapMagnifierToAction
 	],
 	[`the button is the topmost element at its own centre (found ${verdict.elementFromPoint})`, verdict.hitTestReachesButton === true],
-	['a real click opens the panel', verdict.modalAfterClick === true],
+	// --- inline mode: the ticks and the bar ---
+	[
+		`a real click turns on inline mode: a bar over the list (${String(verdict.inlineBarParent)}) and one tick per row (${verdict.inlineMarkCount})`,
+		verdict.inlineBarAttached === true && verdict.inlineBarParent === 'sidebar' && verdict.inlineMarkCount === 4
+	],
+	[
+		`the tick reserves its gutter out of the row's own padding (${verdict.rowPaddingStart}, restored to ${verdict.rowPaddingAfterEscape} on exit)`,
+		verdict.rowPaddingStart === '30px' && verdict.rowPaddingAfterEscape === '8px'
+	],
+	[
+		`the tick sits left of the title and is centred in the 32px row (x ${verdict.markBox?.[0]}, centre offset ${verdict.markVerticallyCentered})`,
+		verdict.markLeftOfTitle === true && Math.abs(verdict.markVerticallyCentered ?? 99) <= 1
+	],
+	['the tick is the topmost element at its own centre, so a click reaches it', verdict.markOnTop === true],
+	[
+		`the page keeps its own layout while ticking (body ${verdict.bodyStyle?.display}, ${verdict.bodyStyle?.width}, mode class ${verdict.bodyStyle?.picking})`,
+		verdict.bodyStyle?.display === 'block'
+			&& verdict.bodyStyle?.picking === true
+			&& verdict.bodyStyle?.hasEntryClass === false
+	],
+	[
+		`clicking a row ticks it (${JSON.stringify(verdict.tickedAfterRowClick)}) instead of opening it (${verdict.openedAfterRowClick} navigations)`,
+		JSON.stringify(verdict.tickedAfterRowClick) === JSON.stringify(['false', 'true', 'false', 'false'])
+			&& verdict.openedAfterRowClick === 0
+	],
+	[
+		`the tick is a toggle too (${JSON.stringify(verdict.tickedAfterMarkClick)})`,
+		JSON.stringify(verdict.tickedAfterMarkClick) === JSON.stringify(['false', 'false', 'false', 'false'])
+	],
+	[
+		`select-all takes every row on screen (${verdict.barCount})`,
+		JSON.stringify(verdict.tickedAfterSelectAll) === JSON.stringify(['true', 'true', 'true', 'true'])
+			&& verdict.barCount === '已选 4'
+	],
+	[
+		`pin reaches the workspace service (${(verdict.pinnedIds ?? []).join(', ')}) and the button flips`,
+		JSON.stringify(verdict.pinnedIds) === JSON.stringify(['a', 'b', 'c', 'd']) && verdict.pinButtonFlip === true
+	],
+	['Esc leaves inline mode, taking the ticks and the bar with it', verdict.inlineAfterEscape === true],
+	// --- the panel ---
+	['the bar switches to panel mode and opens the dialog', verdict.modalAfterPanelSwitch === true],
 	[
 		`the panel heads one group per workspace (${(verdict.groupHeadings ?? []).map((name) => JSON.stringify(name)).join(' | ')})`,
 		Array.isArray(verdict.groupHeadings)
@@ -364,12 +404,32 @@ const checks = verdict === null ? [] : [
 	],
 	['the mask closes it again', verdict.modalClosedAgain === true],
 	['a click dispatched at the button centre opens the panel', verdict.modalAfterDispatchedClick === true],
+	// --- back to inline, and one batch through the bar ---
 	[
-		`the panel listed the sessions from the controller's snapshot (${(verdict.diagTrail ?? []).length} notes)`,
+		`the panel switches back to inline mode (${verdict.ticksAfterPanelSwitch} ticks, dialog closed)`,
+		verdict.inlineAfterPanelSwitch === true && verdict.ticksAfterPanelSwitch === 4
+	],
+	[
+		`archive reaches the workspace service (${(verdict.archivedIds ?? []).join(', ')}) and the button flips`,
+		JSON.stringify(verdict.archivedIds) === JSON.stringify(['a', 'b', 'c', 'd']) && verdict.archiveButtonFlip === true
+	],
+	[
+		`deleting from the bar asks first (${verdict.deletedBeforeConfirm} deletions before the confirmation)`,
+		verdict.confirmVisible === true && verdict.deletedBeforeConfirm === 0
+	],
+	[
+		`and then deletes every ticked conversation (${(verdict.deletedIds ?? []).join(', ')})`,
+		JSON.stringify(verdict.deletedIds) === JSON.stringify(['a', 'b', 'c', 'd'])
+	],
+	[
+		`the plugin recorded what it did (${(verdict.diagTrail ?? []).length} notes)`,
 		Array.isArray(verdict.diagTrail)
-			&& verdict.diagTrail.some((line) => line.includes('click'))
-			&& verdict.diagTrail.some((line) => line.includes('panel open'))
+			&& verdict.diagTrail.some((line) => line.includes('marks service'))
+			&& verdict.diagTrail.some((line) => line.includes('apply build=17'))
+			&& verdict.diagTrail.some((line) => line.includes('inline on'))
+			&& verdict.diagTrail.some((line) => line.includes('inline off'))
 			&& verdict.diagTrail.some((line) => line.includes('panel rendered rows=4'))
+			&& verdict.diagTrail.some((line) => line.includes('delete done ok=4'))
 	],
 	['the page reported no errors', (verdict.errors ?? []).length === 0]
 ]

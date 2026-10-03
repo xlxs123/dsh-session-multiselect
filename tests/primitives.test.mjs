@@ -100,7 +100,21 @@ test('the resolved icon names match the installed primitives package', { skip: p
 	// object named `exports`; here the value itself is what `apply` lives on).
 	const plugin = registration.factory((spec) => {
 		if (spec === '@deepseek-ai/dsh-client-ui-primitives') return primitives
-		if (spec === '@deepseek-ai/dsh-client-store') return { defineStore: () => ({ create: () => ({}) }), createSnapshotStore: () => ({}) }
+		if (spec === '@deepseek-ai/dsh-client-store') {
+			// Both store kinds are inert here, but they must have the shape the
+			// bundle reads: `apply` seeds its pinned/archived mirror from the store.
+			const empty = { getSnapshot: () => ({}), subscribe: () => () => {}, set() {}, actions: {} }
+			return {
+				defineStore: (decl) => ({
+					create: () => ({
+						getSnapshot: () => decl.init(),
+						subscribe: () => () => {},
+						actions: Object.fromEntries(Object.keys(decl.actions ?? {}).map((key) => [key, () => {}]))
+					})
+				}),
+				createSnapshotStore: () => empty
+			}
+		}
 		if (spec === 'react') return { Component: class Component {} }
 		if (spec === 'react-dom/client') return { createRoot: () => ({ render() {}, unmount() {} }) }
 		if (spec === 'react/jsx-runtime') return { jsx: () => null, jsxs: () => null, Fragment: Symbol('Fragment') }
@@ -130,11 +144,17 @@ test('the resolved icon names match the installed primitives package', { skip: p
 	// The slot takes `{ name, id, locale, inject }`; `inject()` is what hands the
 	// component its face (icons included), exactly as the app calls it.
 	const face = registered[0].entry.inject()
-	for (const key of ['search', 'checklist', 'loading']) {
+	for (const key of ['search', 'checklist', 'loading', 'pin', 'check']) {
 		assert.equal(typeof face.icons[key], 'function', `icons.${key} resolved`)
 	}
 	// Named explicitly: if this build ships them, they are what gets used.
-	for (const [key, name] of [['search', 'IconSearchOutlineRegular'], ['checklist', 'IconChecklistOutlineRegular'], ['loading', 'IconLoadingOutlineRegular']]) {
+	for (const [key, name] of [
+		['search', 'IconSearchOutlineRegular'],
+		['checklist', 'IconChecklistOutlineRegular'],
+		['loading', 'IconLoadingOutlineRegular'],
+		['pin', 'IconPinOutlineRegular'],
+		['check', 'IconCheckOutlineRegular']
+	]) {
 		if (!names.includes(name)) continue
 		assert.equal(face.icons[key], primitives[name], `${key} uses ${name}`)
 	}

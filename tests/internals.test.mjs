@@ -90,6 +90,59 @@ test('visibleRows matches title, working directory, and id', () => {
 	assert.deepEqual(helpers.visibleRows(snapshot, {}, 'nomatch', false).map((r) => r.sessionId), [])
 })
 
+test('visibleRows lifts pinned rows above recency, the way DSH lists them', () => {
+	const snapshot = {
+		items: [
+			{ sessionId: 'newest', title: 'Newest', updatedAt: 90 },
+			{ sessionId: 'pinned', title: 'Pinned', updatedAt: 10 },
+			{ sessionId: 'middle', title: 'Middle', updatedAt: 50 }
+		]
+	}
+	const rows = helpers.visibleRows(snapshot, { pinnedIds: ['pinned'] }, '', false)
+	assert.deepEqual(rows.map((row) => row.sessionId), ['pinned', 'newest', 'middle'])
+	assert.equal(rows[0].pinned, true)
+	assert.equal(rows[1].pinned, false)
+	// A pinned row that is also archived stays hidden until archived rows are asked
+	// for — the archive mark wins over the pin.
+	const archived = helpers.visibleRows(snapshot, { pinnedIds: ['pinned'], archivedIds: ['pinned'] }, '', false)
+	assert.deepEqual(archived.map((row) => row.sessionId), ['newest', 'middle'])
+})
+
+test('parseRowKey reads the session id out of a row key and nothing else', () => {
+	assert.equal(helpers.parseRowKey('session:abc-123'), 'abc-123')
+	assert.equal(helpers.parseRowKey('session:'), null, 'an empty id is not a row')
+	assert.equal(helpers.parseRowKey('project:abc'), null, 'project rows are not sessions')
+	assert.equal(helpers.parseRowKey(undefined), null)
+	assert.equal(helpers.parseRowKey(''), null)
+})
+
+test('markStatusText names what really happened, partial failures included', () => {
+	const asked = []
+	const t = (key, params) => {
+		asked.push(key)
+		return params === undefined ? key : `${key}${JSON.stringify(params)}`
+	}
+	// A batch the workspace service performed is reported as such …
+	assert.deepEqual(helpers.markStatusText(t, 'archive', { ok: 2, failed: [], real: true }, 2),
+		{ text: 'status.archived{"n":2}', tone: 'info' })
+	// … while the plugin's own fallback mark has to admit what it is.
+	assert.equal(helpers.markStatusText(t, 'archive', { ok: 1, failed: [], real: false }, 1).text, 'status.archivedLocal{"n":1}')
+	assert.equal(helpers.markStatusText(t, 'unarchive', { ok: 1, failed: [], real: false }, 1).text, 'status.unarchivedLocal{"n":1}')
+	assert.equal(helpers.markStatusText(t, 'pin', { ok: 3, failed: [], real: true }, 3).text, 'status.pinned{"n":3}')
+	assert.equal(helpers.markStatusText(t, 'unpin', { ok: 1, failed: [], real: true }, 1).text, 'status.unpinned{"n":1}')
+	// One refusal must not hide the ids that worked.
+	const partial = helpers.markStatusText(t, 'archive', { ok: 1, failed: [{ id: 'abcdefgh1234', reason: 'session is active' }], real: true }, 2)
+	assert.equal(partial.tone, 'error')
+	assert.match(partial.text, /status\.partial/u)
+	assert.match(partial.text, /abcdefgh: session is active/u)
+})
+
+test('failureList names each id once, short, with its reason', () => {
+	assert.equal(helpers.failureList([{ id: '0123456789', reason: 'boom' }, { id: 'ffffffffff', reason: 'bang' }]),
+		'• 01234567: boom\n• ffffffff: bang')
+	assert.equal(helpers.failureList(undefined), '')
+})
+
 test('toggleSelection adds then removes and moves the range anchor', () => {
 	const first = helpers.toggleSelection(new Set(), 'a')
 	assert.deepEqual([...first.selected], ['a'])

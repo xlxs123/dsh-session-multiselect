@@ -24,7 +24,7 @@
      the harness's numbers differ from the app's for reasons unrelated to the
      plugin (the row gap is 4px in both). */
   button { border: 0; padding: 0; margin: 0; background: transparent; font: inherit; color: inherit; }
-  #sidebar { width: 260px; background: #f1f1ef; }
+  #sidebar { width: 260px; min-height: 520px; background: #f1f1ef; }
   .sectionHeader { height: 36px; display: flex; justify-content: flex-end; align-items: center; gap: 4px; padding-left: 4px; overflow: hidden; }
   .sectionLabel { flex: none; line-height: 20px; overflow: hidden; font-size: 12px; color: #6b6b6b; }
   .searchSlot { box-sizing: border-box; min-width: 0; max-width: 28px; flex: 1; align-items: center; margin-left: auto; padding-left: 0; display: flex; }
@@ -33,6 +33,12 @@
   .searchInput { opacity: 0; pointer-events: none; width: 0; min-width: 0; flex: 1; background: transparent; border: none; outline: none; }
   .headerActions { max-width: 60px; flex: none; align-items: center; gap: 4px; display: flex; overflow: hidden; }
   .headerActions button { width: 28px; height: 28px; background: transparent; border: none; }
+  /* The session rows, as the workspace plugin renders them: a 32px flex row whose
+     inline-start padding reserves the leading 16px cell. Inline mode ticks it. */
+  .sessionRow { box-sizing: border-box; display: flex; align-items: center; gap: 0; height: 32px; padding: 0 8px; border-radius: 8px; cursor: pointer; color: #222; }
+  .sessionRow:hover { background: #0000000d; }
+  .slot { width: 16px; height: 20px; flex: none; }
+  .title { margin: 0 6px 0 4px; font-size: 14px; line-height: 20px; }
   #verdict { margin: 12px; padding: 10px; background: #fff; border: 1px solid #ddd; white-space: pre-wrap; }
 </style>
 </head>
@@ -50,6 +56,15 @@
       <button type="button" aria-label="新建会话"></button>
       <button type="button" aria-label="更多"></button>
     </div>
+  </div>
+  <!-- Rows carry the shell's own data-row-key: the only stable handle on a
+       session row, and where inline mode reads the id from. Their own click
+       handler records navigation, which is what must NOT happen in inline mode. -->
+  <div class="sessionList">
+    <div class="sessionRow" data-row-key="session:a" role="treeitem" tabindex="0"><span class="slot"></span><span class="title">第一个对话</span></div>
+    <div class="sessionRow" data-row-key="session:b" role="treeitem" tabindex="0"><span class="slot"></span><span class="title">第二个对话</span></div>
+    <div class="sessionRow" data-row-key="session:c" role="treeitem" tabindex="0"><span class="slot"></span><span class="title">第三个对话</span></div>
+    <div class="sessionRow" data-row-key="session:d" role="treeitem" tabindex="0"><span class="slot"></span><span class="title">没有工作区的对话</span></div>
   </div>
 </div>
 
@@ -134,16 +149,31 @@ function Modal({ open, onClose, title, children }) {
 
 function Icon(props) { return h('svg', { width: props.size ?? 16, height: props.size ?? 16 }); }
 
+/** The real Button forwards refs (the plugin tooltips it) and handles clicks;
+    a stub that dropped either would make the panel look inert here. */
+const Button = React.forwardRef(function Button(props, ref) {
+  return h('button', {
+    ref,
+    type: 'button',
+    className: props.className,
+    disabled: props.disabled,
+    'data-armed': props['data-armed'],
+    onClick: props.onClick
+  }, props.children);
+});
+
 const primitives = {
   Modal,
   Tooltip,
-  Button: (props) => h('button', { type: 'button' }, props.children),
+  Button,
   Input: (props) => h('input', { placeholder: props.placeholder }),
   // The names DSH 0.10 ships; 0.9 used IconSearchOutline16 and friends, and the
   // plugin resolves whichever exists (falling back to its own artwork).
   IconSearchOutlineRegular: Icon,
   IconChecklistOutlineRegular: Icon,
-  IconLoadingOutlineRegular: Icon
+  IconLoadingOutlineRegular: Icon,
+  IconPinOutlineRegular: Icon,
+  IconCheckOutlineRegular: Icon
 };
 
 // --- fake plugin context ----------------------------------------------------
@@ -178,12 +208,39 @@ const sessions = {
     events: { entries: () => [] },
     prompt: async () => ({ ok: true })
   }),
-  delete: async () => {}, fork: async () => {}, create: async () => 'x', open: () => {}
+  // Recorded, so the harness can prove a batch really reached the service.
+  delete: async (sessionId) => { window.__smokeDeleted.push(sessionId); },
+  fork: async () => {}, create: async () => 'x', open: () => {}
 };
+window.__smokeDeleted = [];
+// The row's own click, which inline mode must pre-empt: opening a conversation
+// in the middle of ticking rows would lose the selection.
+window.__smokeOpened = [];
+for (const row of document.querySelectorAll('[data-row-key^="session:"]')) {
+  row.addEventListener('click', () => { window.__smokeOpened.push(row.getAttribute('data-row-key')); });
+}
+// The workspace controller: pinning and archiving are its commands, so the
+// harness stands it up the way the app provides it (through `ctx.get`).
+function makeWorkspaces() {
+  const calls = { pinned: [], unpinned: [], archived: [], unarchived: [] };
+  const listeners = new Set();
+  let state = { pinnedSessionIds: [], archivedSessionIds: [] };
+  const publish = (next) => { state = next; for (const fn of [...listeners]) fn(); };
+  return {
+    calls,
+    list: { getSnapshot: () => state, subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn); } },
+    async pinSession(id) { calls.pinned.push(id); publish({ ...state, pinnedSessionIds: [id, ...state.pinnedSessionIds.filter((x) => x !== id)] }); },
+    async unpinSession(id) { calls.unpinned.push(id); publish({ ...state, pinnedSessionIds: state.pinnedSessionIds.filter((x) => x !== id) }); },
+    async archiveSession(id) { calls.archived.push(id); publish({ ...state, archivedSessionIds: [...state.archivedSessionIds, id] }); },
+    async unarchiveSession(id) { calls.unarchived.push(id); publish({ ...state, archivedSessionIds: state.archivedSessionIds.filter((x) => x !== id) }); }
+  };
+}
+const workspaces = makeWorkspaces();
 const ctx = {
   effect: (fn) => { const dispose = fn(); return typeof dispose === 'function' ? dispose : () => {}; },
   locale: { register: () => () => {}, subscribe: () => () => {} },
   slots: { inject: () => () => {}, register: () => ({}) },
+  get: (name) => (name === 'workspaces' ? workspaces : undefined),
   sessions
 };
 
@@ -194,6 +251,17 @@ const round = (n) => Math.round(n * 100) / 100;
 const box = (rect) => [round(rect.left), round(rect.top), round(rect.width), round(rect.height)];
 
 async function run() {
+  // A failure halfway through still has to produce a verdict: the records already
+  // taken are what say where it stopped, and the diagnostic ring comes with them.
+  try {
+    await drive();
+  } catch (error) {
+    record('driveError', String(error?.stack ?? error));
+  }
+  finish();
+}
+
+async function drive() {
   const registration = window.__smokeRegistration;
   if (registration === undefined) throw new Error('the bundle did not register itself');
   const table = new Map([
@@ -247,10 +315,99 @@ async function run() {
   record('elementFromPoint', top === null ? null : `${top.tagName.toLowerCase()}.${top.className}`);
   record('hitTestReachesButton', top !== null && (top === button || button.contains(top) || host.contains(top)));
 
-  // The real question: does a real click open the dialog?
+  // The real question: does a real click actually do something?
   button.click();
   await frame(); await frame();
-  record('modalAfterClick', document.querySelector('[data-fake-modal]') !== null);
+
+  // --- inline mode: the ticks and the bar ---------------------------------
+  const barOf = () => document.querySelector('[data-dsh-msel-bar]');
+  const barButton = (label) => [...(barOf()?.querySelectorAll('button') ?? [])].find((node) => node.textContent === label) ?? null;
+  const rows = [...document.querySelectorAll('[data-row-key^="session:"]')];
+  const marks = () => rows.map((row) => row.querySelector('.dsh-msel-mark'));
+  const ticked = () => marks().map((mark) => mark?.getAttribute('data-selected') ?? null);
+
+  const bar = barOf();
+  record('inlineBarAttached', bar !== null);
+  record('inlineBarParent', bar?.parentElement?.id ?? null);
+  record('inlineMarkCount', marks().filter((mark) => mark !== null).length);
+  // The gutter is reserved out of the row's own padding (8px + 22px), so the
+  // shell's status dot, title, and time keep their places.
+  record('rowPaddingStart', getComputedStyle(rows[0]).paddingInlineStart);
+  const markBox = box(marks()[0].getBoundingClientRect());
+  const titleBox = box(rows[0].querySelector('.title').getBoundingClientRect());
+  const rowBox = box(rows[0].getBoundingClientRect());
+  record('markBox', markBox);
+  record('rowBox', rowBox);
+  record('rowComputed', (() => {
+    const style = getComputedStyle(rows[0]);
+    return { position: style.position, paddingInlineStart: style.paddingInlineStart, display: style.display };
+  })());
+  record('markHostComputed', (() => {
+    const host = rows[0].querySelector('[data-dsh-msel-mark]');
+    if (host === null) return null;
+    const style = getComputedStyle(host);
+    return { position: style.position, left: style.left, insetInlineStart: style.insetInlineStart, width: style.width, display: style.display, inlineOffset: host.offsetLeft };
+  })());
+  record('markHostParent', rows[0].querySelector('[data-dsh-msel-mark]')?.parentElement?.className ?? null);
+  // The page itself must be untouched: the body carries only this plugin's own
+  // mode class, and — the trap this guards — NOT the entry button's class, whose
+  // 28px inline-flex rules would lay the whole window out as one button.
+  record('bodyStyle', (() => {
+    const style = getComputedStyle(document.body);
+    return {
+      display: style.display,
+      width: style.width,
+      picking: document.body.classList.contains('dsh-msel-picking'),
+      hasEntryClass: document.body.classList.contains('dsh-msel-inline')
+    };
+  })());
+  record('markLeftOfTitle', markBox[0] + markBox[2] <= titleBox[0]);
+  record('markVerticallyCentered', round(markBox[1] + markBox[3] / 2 - (rowBox[1] + rowBox[3] / 2)));
+  record('markOnTop', (() => {
+    const node = document.elementFromPoint(markBox[0] + markBox[2] / 2, markBox[1] + markBox[3] / 2);
+    return node !== null && (node.classList.contains('dsh-msel-mark') || node.parentElement?.classList.contains('dsh-msel-markHost'));
+  })());
+  record('elementAtMark', (() => {
+    const node = document.elementFromPoint(markBox[0] + markBox[2] / 2, markBox[1] + markBox[3] / 2);
+    return node === null ? null : `${node.tagName.toLowerCase()}.${String(node.className).split(' ')[0]}${node.parentElement === null ? '' : ` < ${node.parentElement.tagName.toLowerCase()}.${String(node.parentElement.className).split(' ')[0]}`}`;
+  })());
+
+  // A click on the row's own title ticks it — and the row's own click handler,
+  // which would open that conversation, never runs.
+  rows[1].querySelector('.title').dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+  await frame();
+  record('tickedAfterRowClick', ticked());
+  record('openedAfterRowClick', window.__smokeOpened.length);
+  // The tick itself is a toggle too.
+  marks()[1].click();
+  await frame();
+  record('tickedAfterMarkClick', ticked());
+
+  // 全选 takes every row on screen.
+  barButton('全选').click();
+  await frame();
+  record('tickedAfterSelectAll', ticked());
+  record('barCount', barOf().querySelector('.dsh-msel-barCount').textContent);
+
+  // 置顶 is the workspace controller's command — not a private mark — and the
+  // button flips to its own reverse once the selection carries the mark.
+  barButton('置顶').click();
+  await frame(); await frame();
+  record('pinnedIds', workspaces.calls.pinned.slice());
+  record('pinButtonFlip', [...barOf().querySelectorAll('button')].map((node) => node.textContent).includes('取消置顶'));
+
+  // Esc leaves the mode and takes the ticks and the bar with it.
+  document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  await frame(); await frame();
+  record('inlineAfterEscape', barOf() === null && marks().every((mark) => mark === null));
+  record('rowPaddingAfterEscape', getComputedStyle(rows[0]).paddingInlineStart);
+
+  // --- the panel, reached through the bar's mode switch --------------------
+  button.click(); // inline mode on again
+  await frame(); await frame();
+  barButton('面板').click();
+  await frame(); await frame();
+  record('modalAfterPanelSwitch', document.querySelector('[data-fake-modal]') !== null);
 
   // ...and does the open panel really lay the conversations out by workspace?
   const groups = [...document.querySelectorAll('.dsh-msel-group')];
@@ -283,7 +440,28 @@ async function run() {
   await frame(); await frame();
   record('modalAfterDispatchedClick', document.querySelector('[data-fake-modal]') !== null);
 
-  finish();
+  // --- back to inline through the panel's own switch, then a batch ---------
+  const switchButton = [...document.querySelectorAll('.dsh-msel-toolbar button')].find((node) => node.textContent === '内联勾选');
+  switchButton?.click();
+  await frame(); await frame();
+  record('inlineAfterPanelSwitch', barOf() !== null && document.querySelector('[data-fake-modal]') === null);
+  record('ticksAfterPanelSwitch', marks().filter((mark) => mark !== null).length);
+
+  barButton('全选').click();
+  await frame();
+  barButton('归档').click();
+  await frame(); await frame();
+  record('archivedIds', workspaces.calls.archived.slice());
+  record('archiveButtonFlip', [...barOf().querySelectorAll('button')].map((node) => node.textContent).includes('取消归档'));
+
+  // Deleting from the bar asks first, then reaches the service once per id.
+  barButton('删除').click();
+  await frame();
+  record('confirmVisible', barOf().textContent.includes('永久删除'));
+  record('deletedBeforeConfirm', window.__smokeDeleted.length);
+  barButton('永久删除').click();
+  await frame(); await frame();
+  record('deletedIds', window.__smokeDeleted.slice());
 }
 
 function finish() {

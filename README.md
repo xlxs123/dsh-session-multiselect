@@ -3,32 +3,50 @@
 [![test](https://github.com/xlxs123/dsh-session-multiselect/actions/workflows/test.yml/badge.svg)](https://github.com/xlxs123/dsh-session-multiselect/actions/workflows/test.yml)
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![node](https://img.shields.io/badge/node-%E2%89%A520-brightgreen.svg)](#开发)
-[![DSH Desktop](https://img.shields.io/badge/DSH%20Desktop-0.9.0-black.svg)](#dsh-session-multiselect)
+[![DSH Desktop](https://img.shields.io/badge/DSH%20Desktop-0.9.0%20%7C%200.10.0-black.svg)](#dsh-session-multiselect)
 
-DSH Web 客户端的**对话多选插件**：一次勾选多个对话，然后批量删除或归档。
+DSH Web 客户端的**对话多选插件**：一次勾选多个对话，然后批量删除、归档或置顶。两种选择方式：
 
-> **Multi-select for DSH Desktop conversations.** A checkbox panel — grouped by workspace, with search,
-> select-all/invert and Shift-range select — whose batch actions are delete and archive, over the
-> official `session.delete` contract and plugin-local archive state.
-> Install as a standard DSH bundle: `dsh plugin --profile web add .` (see [安装](#安装)).
-> No build step, no host-side code, MIT licensed.
+- **内联勾选（默认，仿 DeepSeek 网页版）**：点入口按钮后，**圆圈直接画在会话列表每一行的左侧**，
+  点行即勾选（不会打开对话），列表底部浮出一条操作栏：已选计数 / 全选 / 面板 / 退出 + 删除 / 归档 / 置顶
+- **面板多选**：弹出完整面板 —— 可按工作区分组、可搜索、可 Shift 范围选择、可整组勾选
+
+> **Multi-select for DSH Desktop conversations.** Two ways to select: ticks drawn into the session list
+> itself (DeepSeek-web style) or a searchable, workspace-grouped panel. Batch actions are delete,
+> archive and pin, over the official `session.delete` contract and the workspace controller's
+> archive/pin commands. Install as a standard DSH bundle: `dsh plugin --profile web add .`
+> (see [安装](#安装)). No build step, no host-side code, MIT licensed.
 
 **入口与做法**：DSH 原生侧边栏的会话列表由 `@deepseek-ai/dsh-client-ui-workspace` 以 `single` slot 独占渲染，
-**没有提供逐行的扩展 slot**，所以无法在原生会话行上直接加复选框。本插件的做法是：
+**没有提供逐行的扩展 slot**，所以两种模式都是 DOM 注入：
 
-- 在**会话列表工具栏那一行、搜索放大镜左侧**注入一个 28px 的入口按钮，打开一个自带的完整多选面板；
-  这是整个插件**唯一的 DOM 注入**（官方没有 header slot，做法与踩过的坑见下文「入口位置」）
+- 在**会话列表工具栏那一行、搜索放大镜左侧**注入一个 28px 的入口按钮。点它做什么由**模式偏好**决定
+  （面板里和操作栏里都能切换，选择会记住）
+- 内联模式在那一个注入点上再往前一步：插件给每个会话行（`data-row-key="session:<id>"`）**插入一个圆圈**，
+  并在列表底部挂一条自己的操作栏；点击行的手势在**捕获阶段**被接管，所以勾选不会顺带打开对话
 - 面板、状态、批量动作全部走官方扩展面：`sidebar.footer.action` slot（注入失败时的兜底入口）、
-  `sessions` 服务、`locale` 字典、客户端 store —— 不改动 DSH 原生代码
-- 注入失败也**不会失去功能**：定位不到目标时入口自动退回侧边栏底部
+  `sessions` 服务、`workspaces` 服务（归档/置顶）、`locale` 字典、客户端 store —— 不改动 DSH 原生代码
+- 注入失败也**不会失去功能**：定位不到目标时入口自动退回侧边栏底部，且退回后仍然是同样的两种模式
 
 兼容性：在 **DSH Desktop 0.9.0 与 0.10.0**（Harness 0.1.x / 0.1.7-rc.2）的 Web 客户端上开发并实测（Windows）。
-插件只依赖官方已有的 `slots` / `locale` / `sessions` 三个服务；对会随版本变化的**装饰性契约**
-（图标导出名、Button 的 variant）一律做「多候选名 + 自带兜底」，见下文「跨版本兼容」。
+插件只依赖官方已有的 `slots` / `locale` / `sessions` 三个服务并**可选地**使用 `workspaces`；
+对会随版本变化的**装饰性契约**（图标导出名、Button 的 variant、带哈希的类名）一律做
+「多候选名 + 自带兜底」，见下文「跨版本兼容」。
 
 ## 功能
 
-**选择方式**
+**两种选择方式**（入口按钮的行为由记住的模式偏好决定，两边都能切换）
+
+内联勾选（默认，仿 DeepSeek 网页版）：
+
+- 点入口按钮 → 会话列表**每一行左侧出现圆圈**；点圆圈或点整行都切换勾选，**不会打开那个对话**
+- 行内自己的控件（右侧的 `⋯` 菜单）保持可用：只有行主体和圆圈属于多选
+- 底部操作栏：`已选 N` / 全选 / 面板 / 退出，第二行是 删除 / 归档 / 置顶（选中项已全部归档/置顶时，
+  按钮自己变成「取消归档」「取消置顶」）
+- `Shift + 点击` 按列表显示顺序选范围；`Esc` 退出多选（有未确认的删除时，先取消确认框）
+- 退出时**不留痕迹**：圆圈、被加宽的行内边距、`body` 上的模式类名全部还原
+
+面板多选：
 
 - 复选框列表（只列出真实对话，自动隐藏空白会话）
 - **按工作区分组**：每个工作区一个标题（**显示完整路径**，路径过长时省略号出现在左侧、保留尾部目录名），
@@ -38,13 +56,14 @@ DSH Web 客户端的**对话多选插件**：一次勾选多个对话，然后�
 - 全选 / 清空 / 反选
 - 搜索：按标题、工作目录、会话 ID 过滤
 - **Shift + 点击按范围选择**（范围按**当前显示顺序**，也就是分组后的顺序）；Ctrl/Cmd + 点击追加选择
-- 已选计数实时显示
+- 已选计数实时显示；已置顶的行排在最前（和原生列表的置顶分组一致），并带「已置顶」标签
+- 工具栏里的「内联勾选」一键切回圆圈模式（弹窗关闭、圆圈立刻出现）
 
 **入口位置**
 
 入口按钮注入在**会话列表工具栏那一行、搜索控件左侧**，与原生控件同一行，间距与原生按钮一致。
 
-这是整个插件**唯一的 DOM 注入**：那个工具栏由 `dsh-client-ui-workspace` 渲染，官方**没有声明任何 header slot**，
+这是整个插件**在原生工具栏上的唯一注入点**：那个工具栏由 `dsh-client-ui-workspace` 渲染，官方**没有声明任何 header slot**，
 「放在放大镜左边」在官方扩展面上无法实现。做法是把按钮**绝对定位在搜索控件左侧、脱离 flex 流**：
 
 - **必须脱离 flex 流**，这是两次踩坑换来的结论。该行是 `display:flex; gap:4px; justify-content:flex-end`，
@@ -72,22 +91,46 @@ DSH Web 客户端的**对话多选插件**：一次勾选多个对话，然后�
 
 **批量操作**
 
-面板只提供两个动作按钮（这是刻意的：按钮越少，误点越少）：
+两种模式共用同一套动作（面板是三个按钮，操作栏也是三个），全部**逐 id 执行并逐个报告失败原因**：
 
 | 操作 | 说明 | 可靠性 |
 | --- | --- | --- |
-| **删除** | 永久删除选中的多个对话及其全部记录。点「删除」后按钮自身会亮起红框、确认框自动滚进视野，二次确认后才调用服务 | 官方 `session.delete` 契约 |
-| **归档 / 取消归档** | 一个按钮两个方向：选中项里**全是已归档**时显示「取消归档」，否则显示「归档」。归档的对话默认从面板隐藏（勾选「显示归档」可见） | 插件本地状态 |
+| **删除** | 永久删除选中的多个对话及其全部记录。点「删除」后按钮自身会亮起红框、确认框（面板）或确认行（操作栏）会出现，二次确认后才调用服务 | 官方 `session.delete` 契约 |
+| **归档 / 取消归档** | 一个按钮两个方向：选中项里**全是已归档**时显示「取消归档」，否则显示「归档」。走工作区控制器的 `archiveSession` / `unarchiveSession`，所以原生列表的归档分组也会跟着变；**正在运行的对话会被服务拒绝**，那一行会以失败原因列出来 | 官方 `workspaces` 服务（该服务不存在时退回插件本地标记，状态行会写明「仅本插件内隐藏」） |
+| **置顶 / 取消置顶** | 同样一个按钮两个方向，走 `pinSession` / `unpinSession`：置顶后原生列表把该行移进置顶分组，面板里也排到最前 | 官方 `workspaces` 服务；服务不存在时**明确报错说没有置顶接口**，不会假装成功 |
 
-> 0.2.0 起移除了 **Fork / 导出 MD / 导出 JSON / 汇总给 AI / 置顶 / 标为未读** 这些按钮，
-> 对应的实现与测试也一并删除（`git revert` 对应提交即可整块找回）。归档做成双向切换，
-> 正是因为面板只剩两个按钮：没有它，「取消归档」在界面上就没有入口了。
+> 0.2.0 移除了 **Fork / 导出 MD / 导出 JSON / 汇总给 AI / 置顶 / 标为未读**（`git revert` 对应提交可整块找回）；
+> 0.3.0 把**置顶**以真实服务调用的形式加回来，并把**归档**从「插件本地标记」升级成工作区控制器的命令。
 
-### 关于「归档」的重要说明
+### 内联勾选模式是怎么实现的
 
-DSH 客户端 **没有** host 侧的 archive 契约（原生侧边栏的「未读」也只是工作区插件的
-本地 localStorage 状态，未暴露成服务）。因此本插件的归档是**插件自己的持久化状态**：
-它影响本多选面板的显隐，**不会**改变原生侧边栏的显示。删除走的是官方契约，对所有界面都生效。
+原生会话行是别人 React 树里的 `div[data-row-key="session:<id>"]`，插件不去渲染它，只做三件小事：
+
+- **找行**：按 `data-row-key` 前缀（`session:`）找，而不是类名 —— 类名带构建哈希，属性还是 id 的来源
+- **画圆圈**：往行里插一个绝对定位的宿主（第一个子节点），并把行的 `padding-inline-start` 从**当前解析值**
+  加宽 22px 作为圆圈的道槽（所以原生状态点、标题、时间的排布不变；多层工作区的缩进变量也被算进去了）。
+  退出时两项内联样式按原值还原，`MutationObserver` 保证列表重渲染后圆圈还在（幂等，不会叠两个）
+- **接管点击**：`document` 上的**捕获阶段** click 监听把落在会话行上的手势吃掉（`preventDefault` +
+  `stopPropagation`），改成切换勾选 —— 否则原生 `onClick` 会打开那个对话。行内的 `button`（`⋯` 菜单）
+  不在接管范围内。操作栏按钮自己那一路不受影响
+- **操作栏**：挂在列表根元素（从注入点向上找到**最近一个真正包含会话行的祖先**，同样不看类名）的底部，
+  `position:absolute` + `inset-inline:6px`，不占列表布局；面板与它共用同一份选择状态与同一套批量动作
+
+一个真实的教训：模式类名**不能**复用入口按钮自己的 `.dsh-msel-inline`。那个类把元素样式化成 28px 的
+inline-flex 按钮，`body` 一旦戴上它，整个窗口就按一个按钮来排版（无头浏览器里表现为整页宽 112px、
+所有坐标变成负数）。现在 `body` 用的是 `dsh-msel-picking`，`tests/browser` 会断言 `body` 上没有那个按钮类。
+
+### 关于「归档」与「置顶」
+
+两者都是**工作区控制器**的命令，不是会话服务上的方法：`ctx.get("workspaces")` 的
+`archiveSession` / `unarchiveSession` / `pinSession` / `unpinSession`，以及它的快照
+`{ pinnedSessionIds, archivedSessionIds }`（面板的「已置顶/已归档」状态、按钮的双向文字都读它）。
+
+- 这个服务**不进 `inject`**：老版本可能没有它，而 `inject` 里挂一个永远不来的服务会让整个插件不激活
+  （入口按钮都不会出现）。所以每次都 `ctx.get("workspaces")` 惰性取一次，取不到就走兜底
+- 归档在服务缺失时仍可用（插件本地持久化标记），状态行会写清「仅本插件内隐藏」；
+  置顶没有本地兜底 —— 一个只在本插件里生效的「置顶」是假象，所以那种情况下直接报错说明
+- 置顶与归档**互斥**（host 侧规则）：把一个已归档的对话置顶会被拒绝，失败原因会逐行列出
 
 ### 会话列表数据的形状
 
@@ -122,12 +165,16 @@ DSH 客户端 **没有** host 侧的 archive 契约（原生侧边栏的「未�
 
 ### 诊断环（排查用）
 
-插件在 `sessionStorage` 的 `dsh.session.multiselect.diag` 里维护一个**最多 40 条**的事件环：
-`apply build=N` / `placed` / `click document` / `click react` / `panel open` / `panel rendered rows=N` /
-`panel error …`，以及每个批量动作的结果：`action empty` / `delete service …` / `delete start n=…` /
-`delete failed <id> <原因>` / `delete done ok=… failed=…` / `action error …`。
+插件在 `sessionStorage` 的 `dsh.session.multiselect.diag` 里维护一个**最多 60 条**的事件环：
+`apply build=N … mode=… marks=…` / `marks service subscribed` / `placed` / `not placed` /
+`entry mode=…` / `inline on` / `inline off` / `inline all rows=… selected=…` / `inline range n=…` /
+`click document` / `click react`（或 `click react skipped`，说明捕获阶段那一路已经处理过这个手势）/
+`panel open` / `panel rendered rows=N` / `panel error …`，以及每个批量动作的结果：
+`delete service …` / `delete start n=…`（面板或操作栏）/ `delete done ok=… failed=…` /
+`archive … service=ok|missing` / `pin … service=ok|missing` / `mark failed <id> <原因>` /
+`action empty` / `action error …`。
 它只写入本标签页的会话存储、写失败也绝不影响功能，用来回答「点击到底有没有到达按钮、
-面板有没有渲染、删除到底报的什么错」这类只能靠现场才能判断的问题。
+模式有没有切换、面板有没有渲染、删除/归档到底报的什么错」这类只能靠现场才能判断的问题。
 
 ### 跨版本兼容
 
@@ -191,23 +238,25 @@ dsh plugin --profile web add .     # 路径含空格时务必在包目录内执�
 
 ```
 lib/index.js      Node half（空实现：本插件没有 host 侧功能）
-lib/client.js     浏览器 bundle：面板、选择模型、批量动作、头部注入（window.__ModuleLoader__ 契约）
+lib/client.js     浏览器 bundle：两种模式、选择模型、批量动作、头部注入与行内圆圈（window.__ModuleLoader__ 契约）
 src/index.ts      Node half 源码
-tests/            48 个测试：纯逻辑单测 + 以假 Cordis 上下文挂载真实 bundle + 注入逻辑（含 DOM 桩）
+tests/            60 个测试：纯逻辑单测 + 以假 Cordis 上下文挂载真实 bundle + 注入/圆圈逻辑（含 DOM 桩）
                   + 对着本机安装的 primitives 真实导出清单做兼容性验证
-tests/browser/    真实浏览器冒烟测试：真 React 18 + 无头 Chromium + 复制自工作区插件的头部 CSS
+tests/browser/    真实浏览器冒烟测试：真 React 18 + 无头 Chromium + 复制自工作区插件的头部与行 CSS
 ```
 
 ```sh
 npm install                            # 只装 devDependencies（react/react-dom/ws），供测试当 React/WebSocket 源
-npm test                               # = node --test  （48 个文件级测试，约 0.4 秒）
+npm test                               # = node --test  （60 个测试，约 0.5 秒）
 npm run test:browser                   # 真实浏览器冒烟：需要 Chrome/Edge（自动探测路径）
 npm run diag                           # 从桌面应用的 Session Storage 里读出诊断环
 ```
 
 `tests/browser/harness.mjs` 会起一个静态服务（插件目录 + 真实 React UMD），用 CDP 驱动无头 Chromium
-打开 `click.html`，断言真实布局下的结果：按钮落在哪、中心点上压着谁、真实点击能否打开面板、
-间距是否等于原生按钮间距、分组标题是否显示完整路径、点标题能否整组勾选。Node 桩答不了的就是这类问题。
+打开 `click.html`，断言真实布局下的结果：按钮落在哪、中心点上压着谁、间距是否等于原生按钮间距；
+点入口按钮后**圆圈是否画进了真实会话行**（位置、留出的道槽、中心点上是圆圈而不是别的东西）、
+点行是否勾选而**没有**打开对话、全选/置顶/归档/删除是否真的走到了假服务、面板是否照旧分组显示完整路径。
+Node 桩答不了的就是这类问题。
 React UMD 的查找顺序是：`SMOKE_APP_NODE_MODULES` / `DSH_APP_NODE_MODULES` → 本包 `node_modules` →
 DSH Desktop 安装目录（Windows `%LOCALAPPDATA%\Programs\...`、macOS `/Applications/DSH Desktop.app/...`）。
 Node 只要 20+：CDP 客户端优先用 Node 自带的 `WebSocket`（v22 起才有），否则用 devDependency `ws`
@@ -217,8 +266,8 @@ Node 只要 20+：CDP 客户端优先用 Node 自带的 `WebSocket`（v22 起才
 
 `tests/primitives.test.mjs` 是**针对本机安装版本**的兼容性用例：它从
 `@deepseek-ai/dsh-client-ui-primitives` 的构建产物里读出真实导出清单，用它当模块表来挂载插件，
-再断言三个图标都解析成了这份清单里的真名（而不是兜底）。装了 DSH 才有意义，所以没装时自动 `skip`：
-`SMOKE_APP_NODE_MODULES=<...>/resources/app.asar.unpacked/node_modules npm test`。
+再断言五个图标（搜索/清单/加载/置顶/对勾）都解析成了这份清单里的真名（而不是兜底）。装了 DSH 才有意义，
+所以没装时自动 `skip`：`SMOKE_APP_NODE_MODULES=<...>/resources/app.asar.unpacked/node_modules npm test`。
 
 `lib/client.js` 是手写的 CJS 形式浏览器 bundle（与官方客户端插件同构），无需构建步骤即可被
 客户端模块系统加载；`tests/` 通过伪造 `window.__ModuleLoader__` 与 `require` 直接驱动这份产物，
@@ -226,16 +275,21 @@ Node 只要 20+：CDP 客户端优先用 Node 自带的 `WebSocket`（v22 起才
 
 ## 已知限制
 
-- **不能把复选框放进原生会话行**：原生列表没有逐行 slot（见上）。本插件提供独立面板作为替代方案。
+- **内联圆圈是 DOM 注入，不是原生复选框**：原生列表没有逐行 slot（见上），所以圆圈靠注入实现。
+  它依赖 `data-row-key="session:<id>"` 这个属性；DSH 若改掉它，圆圈就不会出现（入口按钮与面板不受影响，
+  面板模式仍然可用 —— 模式偏好在面板工具栏里切换）。
 - **入口按钮是 DOM 注入**：官方面没有 header slot，所以「放大镜左侧」只能靠注入实现。
   DSH 若改动该工具栏结构（改了无障碍名称又换了类名），注入会失败 —— 届时按钮自动退到侧边栏底部
   （`sidebar.footer.action`，设置图标左侧），不会消失、也不影响功能。注入还会给工具栏那一行加一个
   限定作用域的 `overflow` 覆盖（否则绝对定位的按钮会被 `overflow:hidden` 裁掉），卸载时该覆盖会被移除。
-- **归档是插件本地状态**：DSH 客户端没有 host 侧的 archive 契约（原生侧边栏的「未读」也只是
-  工作区插件的 localStorage 状态），所以归档只影响本面板的显隐；删除走官方契约，对所有界面生效。
+- **内联操作栏浮在列表底部**：它 `position:absolute` 挂在列表根元素上，会盖住列表最下面那一行（和
+  DeepSeek 网页版一样）。列表可滚动，滚上来即可；不需要时就退出多选模式。
+- **归档/置顶依赖工作区控制器**：`workspaces` 服务存在时两者都是真实操作（原生列表分组跟着变）；
+  服务缺失时归档退回插件本地标记（状态行会写明），置顶则直接报错说明没有该接口。
+- **正在运行的对话不能归档**：这是 host 侧规则，会在状态行里逐行列出被拒绝的 id 与原因。
 - **删除不可撤销**：批量删除走官方永久删除契约，这是设计如此，确认框会明确写出数量。
-- **只有删除和归档两个动作**：Fork / 导出 / 汇总给 AI / 置顶 / 未读在 0.2.0 被移除（含实现与测试）。
-  需要它们时用 `git revert` 回滚对应提交，或在 0.1.0 的 tag/提交上取。
+- **Fork / 导出 / 汇总给 AI / 未读 仍未提供**：它们在 0.2.0 被移除（含实现与测试），
+  需要时用 `git revert` 回滚对应提交，或在 0.1.0 的 tag/提交上取。
 - **只在 Web 客户端上做过实测**：插件声明 `platform: "web"`；Tauri/其他壳未验证（理论上同构，
   但 `-webkit-app-region` 之类的桌面壳差异没有实测数据）。
 
