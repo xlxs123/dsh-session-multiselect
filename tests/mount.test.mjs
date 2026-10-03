@@ -446,8 +446,6 @@ function mount({ items = [], records, onCreate, shape, workspaces } = {}) {
 		effects,
 		slotKey: registration.key,
 		entry: registration.entry,
-		/** The registration for one slot name (the footer entry is registered first). */
-		registrationFor: (key) => registrations.find((item) => item.key === key),
 		face,
 		props,
 		renderEntry,
@@ -503,8 +501,8 @@ test('every locale key the panel asks for exists in both dictionaries', () => {
 		return params === undefined ? key : `${key}${JSON.stringify(params)}`
 	}
 	world.renderPanelBody({ t: record })
-	// The other surfaces ask for copy too: the bar over the list, and both settings
-	// entries. A key that only one of them knows is a raw key in front of the user.
+	// The bar over the list asks for copy too: a key only one surface knows is a
+	// raw key in front of the user.
 	world.react.withHooks('InlineBar', () => world.exports.InlineBar({
 		t: record,
 		hooks: world.face.hooks,
@@ -513,10 +511,6 @@ test('every locale key the panel asks for exists in both dictionaries', () => {
 			onArchive() {}, onPin() {}, onPanel() {}, onExit() {}
 		}
 	}))
-	for (const view of ['summary', 'page']) {
-		world.react.withHooks('SessionModeSettings', () => world.exports.SessionModeSettings({ t: record, view, hooks: { store: world.face.hooks.store, setMode() {} } }))
-	}
-	world.react.withHooks('SessionModeRow', () => world.exports.SessionModeRow({ t: record, hooks: { store: world.face.hooks.store, setMode() {} } }))
 	assert.deepEqual([...asked].filter((key) => !(key in dicts.zh)), [], 'keys missing from the zh dictionary')
 	assert.deepEqual([...asked].filter((key) => !(key in dicts.en)), [], 'keys missing from the en dictionary')
 	assert.ok(asked.size > 20, `the surfaces should ask for a real set of labels, saw ${String(asked.size)}`)
@@ -1143,68 +1137,6 @@ test('the inline bar carries the count, all three actions, and the way back', ()
 	assert.equal(bar().props.children[4].props.children, 'status.pinned{"n":2}')
 	hooks.inline.set({ active: true, busy: true, confirming: false, status: null })
 	assert.equal(bar().props.children[3].props.children, 'busy.working')
-})
-
-test('the official settings offer both modes, and the plugin card names the one in force', () => {
-	const world = mount()
-	const general = world.registrationFor('settings.general.item')
-	const page = world.registrationFor('plugins.item')
-	assert.ok(general !== undefined, 'the General tab row is registered')
-	assert.ok(page !== undefined, 'the Plugins page entry is registered')
-	assert.equal(general.entry.options.name, 'settings.general.item')
-	assert.equal(general.entry.options.id, 'session-multiselect-mode')
-	assert.equal(page.entry.options.name, 'plugins.item')
-	assert.equal(page.entry.options.id, 'session-multiselect')
-	assert.equal(page.entry.options.locale, 'sessionMultiselect', 'the pages read this bundle’s dictionary')
-	assert.equal(typeof page.entry.options.label, 'function', 'the Plugins card takes its label from the plugin')
-	// The card's title is translated, so a build that switches language shows it in
-	// that language rather than as a raw key.
-	assert.equal(page.entry.options.label(), world.dictionaries.get('sessionMultiselect').zh['settings.cardTitle'])
-
-	const t = (key) => key
-	const face = page.entry.options.inject()
-	const summaryOf = () => world.react.withHooks('SessionModeSettings', () => world.exports.SessionModeSettings({ t, view: 'summary', ...face }))
-	const bodyOf = () => world.react.withHooks('SessionModeSettings', () => world.exports.SessionModeSettings({ t, view: 'page', ...face }))
-	/** Render the mode choices out of whichever surface holds them. */
-	const choicesOf = (element) => {
-		const choices = (element.props.children ?? []).find((child) => child !== null && child !== undefined && child.type === world.exports.ModeChoices)
-		assert.ok(choices !== undefined, 'the surface carries the mode choices')
-		return world.react.withHooks('ModeChoices', () => choices.type(choices.props))
-	}
-	const labelsOf = (choices) => choices.props.children.map((button) => button.props.children[0].props.children)
-	const marksOf = (choices) => choices.props.children.map((button) => button.props['data-active'])
-	const pick = (choices, index) => { choices.props.children[index].props.onClick() }
-
-	// The card's one-liner states the mode in force; the page carries the choice.
-	assert.equal(summaryOf(), 'settings.summary.inline')
-	assert.deepEqual(labelsOf(choicesOf(bodyOf())), ['mode.inline', 'mode.panel'])
-	assert.deepEqual(marksOf(choicesOf(bodyOf())), ['true', 'false'])
-
-	// Picking the other one writes the same preference the entry button reads.
-	pick(choicesOf(bodyOf()), 1)
-	assert.equal(world.face.hooks.store.getSnapshot().mode, 'panel')
-	assert.deepEqual(marksOf(choicesOf(bodyOf())), ['false', 'true'])
-	assert.equal(summaryOf(), 'settings.summary.panel')
-
-	// The General row shows and sets exactly the same thing.
-	const row = world.react.withHooks('SessionModeRow', () => world.exports.SessionModeRow({ t, ...general.entry.options.inject() }))
-	assert.equal(row.props.children[0].props.children, 'settings.title')
-	assert.deepEqual(marksOf(choicesOf(row)), ['false', 'true'])
-	pick(choicesOf(row), 0)
-	assert.equal(world.face.hooks.store.getSnapshot().mode, 'inline', 'and back again')
-})
-
-test('choosing the panel in settings takes the ticks down with the mode', () => {
-	const world = mount()
-	world.face.actions.entry()
-	assert.equal(world.face.hooks.inline.getSnapshot().active, true, 'the ticks are up')
-	const general = world.registrationFor('settings.general.item')
-	const t = (key) => key
-	const row = world.react.withHooks('SessionModeRow', () => world.exports.SessionModeRow({ t, ...general.entry.options.inject() }))
-	const choices = row.props.children.find((child) => child !== null && child !== undefined && child.type === world.exports.ModeChoices)
-	world.react.withHooks('ModeChoices', () => choices.type(choices.props)).props.children[1].props.onClick()
-	assert.equal(world.face.hooks.store.getSnapshot().mode, 'panel')
-	assert.equal(world.face.hooks.inline.getSnapshot().active, false, 'a mode does not leave its own UI behind')
 })
 
 test('searching filters the rows and reports an empty result', () => {

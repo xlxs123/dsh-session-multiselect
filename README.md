@@ -39,8 +39,8 @@ nightly**（Harness **0.2.0-rc.2**）的 Web 客户端上开发并实测（Windo
 插件**不声明任何 `@deepseek-ai/dsh*` 的 peerDependency**，所以 0.2 起的安装期/启动期兼容性闸门
 （只校验这类 peer）不会拦它 —— 换版本时不需要 `allow-version` 豁免。0.2.0-rc.2 上逐项核对过的契约：
 `Modal` / `Tooltip` / `Button` / `Input`、五个图标导出名（`IconSearchOutline*` / `IconChecklistOutline*` /
-`IconLoadingOutline*` / `IconPinOutline*` / `IconCheckOutline*`）、`sidebar.footer.action` /
-`settings.general.item` / `plugins.item` 三个 slot、`workspaces` 的
+`IconLoadingOutline*` / `IconPinOutline*` / `IconCheckOutline*`）、`sidebar.footer.action` 这一个 slot、
+`workspaces` 的
 `pinSession` / `unpinSession` / `archiveSession` / `unarchiveSession` 与
 `pinnedSessionIds` / `archivedSessionIds` 快照、以及会话行的 `data-row-key="session:<id>"`。
 （0.2 把搜索按钮的中文 aria-label 挪进了语言包，所以按无障碍名匹配可能落空 —— 兜底的
@@ -78,13 +78,14 @@ nightly**（Harness **0.2.0-rc.2**）的 Web 客户端上开发并实测（Windo
 
 | 位置 | 做法 |
 | --- | --- |
-| **设置 → 通用** | 「多选对话的方式」一行，两个按钮：**内联勾选** / **面板多选**（与主题、语言那些行排在一起） |
-| **设置 → 插件 → 对话多选** | 这个插件自己的设置页，同样两个按钮；卡片上的一行说明写着当前用的是哪一种 |
 | 入口按钮 | **左键**按当前模式；**右键**切到另一个模式 |
 | 内联模式的操作栏 | 「面板」按钮 |
 | 面板工具栏 | 「内联勾选」按钮 |
 
-五处改的都是同一个偏好（持久化在 `dsh.session.multiselect.v1`），所以不会有"两个地方说法不一致"。
+三处改的都是同一个偏好（持久化在 `dsh.session.multiselect.v1`），所以不会有"两个地方说法不一致"。
+
+> 曾经在官方 Settings 里贡献过两处入口（`settings.general.item` 与 `plugins.item`），0.3.2 按用户要求
+> **移除**：模式切换保留在上面三处，不再往设置界面里加行/卡片。
 
 **入口位置**
 
@@ -129,22 +130,6 @@ nightly**（Harness **0.2.0-rc.2**）的 Web 客户端上开发并实测（Windo
 > 0.2.0 移除了 **Fork / 导出 MD / 导出 JSON / 汇总给 AI / 置顶 / 标为未读**（`git revert` 对应提交可整块找回）；
 > 0.3.0 把**置顶**以真实服务调用的形式加回来，并把**归档**从「插件本地标记」升级成工作区控制器的命令。
 
-### 设置页（官方 Settings 里）
-
-插件往官方设置里贡献两处，都只注册、不碰别人的 DOM：
-
-- `settings.general.item`：**通用**页里的一行（和「外观」「语言」同属一个列表）。行标题 + 一行说明 +
-  两个大按钮（选中项用 shell 自己的 token 高亮）。样式是插件自己的 class（shell 的类名带构建哈希），
-  但间距、圆角、分隔线、颜色变量都照抄旁边那些行，所以看起来是原生的
-- `plugins.item`：**插件**页里属于本插件的一张卡片与它的页面。这个 slot 的约定是两种视图：
-  `view: "summary"` 返回一句话（卡片上的说明，写明当前是哪一种模式），其余情况返回设置页本身。
-  插件的显示名通过注册项的 `label()` 给出（走本插件的字典，随语言变）
-
-两处注册都各自包在 try/catch 里：某个 DSH 版本去掉其中一个 slot，代价应该是少一行设置，
-而不是整个插件挂不上。诊断环会写 `settings row registered` / `settings page registered`，
-以及渲染时的 `settings row rendered` / `settings page rendered view=…`——
-「设置里到底有没有这一行」只能从运行中的窗口判断。
-
 ### 内联勾选模式是怎么实现的
 
 原生会话行是别人 React 树里的 `div[data-row-key="session:<id>"]`，插件不去渲染它，只做三件小事：
@@ -167,6 +152,13 @@ nightly**（Harness **0.2.0-rc.2**）的 Web 客户端上开发并实测（Windo
 一个真实的教训：模式类名**不能**复用入口按钮自己的 `.dsh-msel-inline`。那个类把元素样式化成 28px 的
 inline-flex 按钮，`body` 一旦戴上它，整个窗口就按一个按钮来排版（无头浏览器里表现为整页宽 112px、
 所有坐标变成负数）。现在 `body` 用的是 `dsh-msel-picking`，`tests/browser` 会断言 `body` 上没有那个按钮类。
+
+第二个教训是配色：**缺失的 token 不能兜底成浅色**。0.2 不提供 `--dsw-alias-bg-elevated`，
+而浮起的操作栏当时写的是 `var(--dsw-alias-bg-elevated,#f7f7f8)` —— 深色主题下文字是
+`--dsw-alias-label-primary`（浅色），底色却落到浅灰兜底，于是**整条操作栏的字看不见**（选中才看得见）。
+现在浮层底色走 `bg-elevated → bg-layer-2 → bg-base` 这条链（0.2 有后面两个），
+文字与描边一律 `,inherit` / `,currentColor` 兜底；`tests/browser` 会在深色 token（**故意不含
+`bg-elevated`**）下断言"文字与底色的亮度差 > 0.25"，所以这种回归回不来。
 
 ### 关于「归档」与「置顶」
 
@@ -367,8 +359,7 @@ Node 只要 20+：CDP 客户端优先用 Node 自带的 `WebSocket`（v22 起才
 - **内联操作栏浮在列表底部**：它 `position:absolute` 挂在列表根元素上，会盖住列表最下面那一行（和
   DeepSeek 网页版一样）。列表可滚动，滚上来即可；不需要时就退出多选模式。
 - **两种模式的入口**：左键按记住的模式走，**右键切到另一个模式**；内联模式的操作栏里有「面板」，
-  面板工具栏里有「内联勾选」，**设置 → 通用**与**设置 → 插件 → 对话多选**里各有一组按钮 ——
-  六处改的是同一个偏好。
+  面板工具栏里有「内联勾选」—— 三处改的是同一个偏好。
 - **归档/置顶依赖工作区控制器**：`workspaces` 服务存在时两者都是真实操作（原生列表分组跟着变）；
   服务缺失时归档退回插件本地标记（状态行会写明），置顶则直接报错说明没有该接口。
 - **正在运行的对话不能归档**：这是 host 侧规则，会在状态行里逐行列出被拒绝的 id 与原因。

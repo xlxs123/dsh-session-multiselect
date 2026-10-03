@@ -19,12 +19,31 @@
 <style>
   /* Copied from the workspace plugin's WorkspaceBrowser.module.css, so the
      layout the plugin meets in the app is the layout it meets here. */
-  body { margin: 0; font: 13px/1.4 system-ui, sans-serif; background: #f8f8f6; }
+  body { margin: 0; font: 13px/1.4 system-ui, sans-serif; background: var(--dsw-alias-bg-base, #f8f8f6); color: var(--dsw-alias-label-primary, #222); }
+  /* The theme tokens as a dark build defines them — deliberately WITHOUT
+     `--dsw-alias-bg-elevated`, which DSH 0.2 does not ship. A surface that fell
+     back to a light default there would paint light text on a light bar, and the
+     harness asserts the resulting contrast, so that regression cannot come back. */
+  :root {
+    --dsw-alias-label-primary: #e8e8ea;
+    --dsw-alias-label-secondary: #a0a0a8;
+    --dsw-alias-label-tertiary: #7a7a82;
+    --dsw-alias-border-l1: #ffffff1f;
+    --dsw-alias-border-l4: #ffffff1f;
+    --dsw-alias-interactive-bg-hover: #ffffff14;
+    --dsw-alias-bg-base: #141416;
+    --dsw-alias-bg-layer-1: #191a1c;
+    --dsw-alias-bg-layer-2: #1f2023;
+    --dsw-alias-bg-module-platform: #232327;
+    --dsw-alias-bg-mask-1: #000000a6;
+    --dsw-alias-state-business-primary: #4d6bfe;
+    --dsw-alias-state-error-primary: #ff6b6b;
+  }
   /* The app ships a base reset; without it the user-agent button box would make
      the harness's numbers differ from the app's for reasons unrelated to the
      plugin (the row gap is 4px in both). */
   button { border: 0; padding: 0; margin: 0; background: transparent; font: inherit; color: inherit; }
-  #sidebar { width: 260px; min-height: 520px; background: #f1f1ef; }
+  #sidebar { width: 260px; min-height: 520px; background: var(--dsw-alias-bg-layer-1, #f1f1ef); }
   .sectionHeader { height: 36px; display: flex; justify-content: flex-end; align-items: center; gap: 4px; padding-left: 4px; overflow: hidden; }
   .sectionLabel { flex: none; line-height: 20px; overflow: hidden; font-size: 12px; color: #6b6b6b; }
   .searchSlot { box-sizing: border-box; min-width: 0; max-width: 28px; flex: 1; align-items: center; margin-left: auto; padding-left: 0; display: flex; }
@@ -413,6 +432,13 @@ async function drive() {
   await frame();
   record('tickedAfterSelectAll', ticked());
   record('barCount', barOf().querySelector('.dsh-msel-barCount').textContent);
+  // The bar's own colours: a surface token that a build does not ship must not
+  // fall back to a light default under dark-theme text (that made the bar
+  // unreadable in DSH 0.2, where only the layered tokens exist).
+  record('barColors', (() => {
+    const style = getComputedStyle(barOf().querySelector('.dsh-msel-bar'));
+    return { color: style.color, background: style.backgroundColor };
+  })());
 
   // 置顶 is the workspace controller's command — not a private mark — and the
   // button flips to its own reverse once the selection carries the mark.

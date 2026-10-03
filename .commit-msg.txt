@@ -1,0 +1,15 @@
+fix: readable in a dark theme, and no Settings surface
+
+Two things from the screenshots of the inline bar:
+
+- the text was invisible until selected. DSH 0.2 does not ship
+  `--dsw-alias-bg-elevated`, so the bar's surface fell back to `#f7f7f8` while
+  its text took `--dsw-alias-label-primary` - light on light in a dark theme.
+  Floating surfaces now fall back through the layered tokens 0.2 does ship
+  (bg-elevated -> bg-layer-2 -> bg-base), and text, hairlines and the tick's ring
+  fall back to `inherit` / `currentColor` instead of assuming a light theme. The
+  browser fixture now runs on dark tokens WITHOUT bg-elevated and asserts the
+  text/surface lightness distance, so this cannot come back silently.
+- the Settings contributions are gone, as asked: no row in General, no card under
+  Plugins. Switching modes stays on the entry button (left click = the stored
+  mode, right click = the other one), in the inline bar, and in the panel.

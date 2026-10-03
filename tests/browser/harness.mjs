@@ -342,8 +342,28 @@ try {
 	failure = error
 }
 
-const checks = verdict === null ? [] : [
-	['the injected host is attached to the search line', verdict.hostAttached === true],
+/**
+ * Perceived lightness distance between a text colour and its surface, 0..1.
+ *
+ * Enough to catch the failure this guards: light text on a light surface. A
+ * missing surface token must never fall back to a light default.
+ * @param colors - `{ color, background }` as computed styles report them.
+ * @returns the distance, or 0 when either colour is unreadable.
+ */
+function contrast(colors) {
+	const rgb = (value) => {
+		const parts = String(value ?? '').match(/\d+(?:\.\d+)?/gu)
+		return parts === null || parts.length < 3 ? null : parts.slice(0, 3).map(Number)
+	}
+	const lightness = (triple) => (0.2126 * triple[0] + 0.7152 * triple[1] + 0.0722 * triple[2]) / 255
+	const text = rgb(colors?.color)
+	const surface = rgb(colors?.background)
+	if (text === null || surface === null) return 0
+	if (String(colors.background).includes('rgba') && Number(String(colors.background).split(',').at(-1)?.replace(')', '')) === 0) return 0
+	return Math.abs(lightness(text) - lightness(surface))
+}
+
+const checks = verdict === null ? [] : [	['the injected host is attached to the search line', verdict.hostAttached === true],
 	['the entry button is rendered', verdict.buttonRendered === true],
 	['the button is a 28px box, like the native icons', verdict.buttonBoxWidth === 28],
 	[
@@ -396,6 +416,10 @@ const checks = verdict === null ? [] : [
 		`select-all takes every row on screen (${verdict.barCount})`,
 		JSON.stringify(verdict.tickedAfterSelectAll) === JSON.stringify(['true', 'true', 'true', 'true'])
 			&& verdict.barCount === '已选 4'
+	],
+	[
+		`the bar's text is readable on its own surface (${verdict.barColors?.color} on ${verdict.barColors?.background})`,
+		contrast(verdict.barColors) > 0.25
 	],
 	[
 		`pin reaches the workspace service (${(verdict.pinnedIds ?? []).join(', ')}) and the button flips`,
@@ -452,10 +476,8 @@ const checks = verdict === null ? [] : [
 		`the plugin recorded what it did (${(verdict.diagTrail ?? []).length} notes)`,
 		Array.isArray(verdict.diagTrail)
 			&& verdict.diagTrail.some((line) => line.includes('marks service'))
-			&& verdict.diagTrail.some((line) => line.includes('apply build=21'))
+			&& verdict.diagTrail.some((line) => line.includes('apply build=22'))
 			&& verdict.diagTrail.some((line) => line.includes('chrome=primitives'))
-			&& verdict.diagTrail.some((line) => line.includes('settings row registered'))
-			&& verdict.diagTrail.some((line) => line.includes('settings page registered'))
 			&& verdict.diagTrail.some((line) => line.includes('inline on'))
 			&& verdict.diagTrail.some((line) => line.includes('inline off'))
 			&& verdict.diagTrail.some((line) => line.includes('inline layout'))
