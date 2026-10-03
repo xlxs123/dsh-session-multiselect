@@ -231,18 +231,30 @@ inline-flex 按钮，`body` 一旦戴上它，整个窗口就按一个按钮来�
 
 ### 跨版本兼容
 
-DSH 升级会改两类东西，本插件对它们的处理方式不同：
+DSH 升级会改三类东西，本插件对它们的处理方式不同：
 
 | 会变的东西 | 例子 | 本插件的做法 |
 | --- | --- | --- |
-| **结构性契约** | `slots` / `sessions` / `locale` 服务、`dsh.client` 清单、`/plugins/<id>/client.js` 路由、`Modal` / `Button` / `Input` 组件 | 直接依赖，缺失就**明确报错**（面板会显示原因，不会静默消失） |
+| **结构性契约** | `slots` / `sessions` / `locale` 服务、`dsh.client` 清单、`/plugins/<id>/client.js` 路由 | 直接依赖，缺失就**明确报错**（面板会显示原因，不会静默消失） |
 | **装饰性契约** | 图标导出名（0.10 把 `IconSearchOutline16` 改成 `IconSearchOutlineRegular` 并删掉旧名）、`Button` 的 variant（0.10 的 `solid` 变成 `primary`）、带哈希的类名 | **多候选名 + 自带兜底**：图标按候选名找，找不到就用插件内联的同一份 16px path 自己画；删除按钮的红色用插件自己的 class，不看 variant |
+| **平台包是否可 require** | 0.10 的客户端模块表预置了 `dsh-client-store` / `dsh-client-ui-primitives` 等；**0.2 只剩 React、Cordis 与静态库**，官方编写指南直接写着「不要 require 任何 Harness 客户端包」 | **一律 optional**：每个平台包都 `try/catch` 取，取不到就用插件自带的同签名实现（对话框 / 按钮 / 输入框 / 提示 / 快照 store + localStorage 持久化） |
 
 0.10 那次的真实教训：旧版本把图标写进「必需导出」清单，于是**一个图标改名 = 插件挂不上**
-（`apply` 抛错，没有按钮、没有面板、也没有提示）。现在必需清单只剩 `Modal` / `Button` / `Input`；
-`Tooltip` 与三个图标都是可选的，`tests/primitives.test.mjs` 会**读本机安装的
-`@deepseek-ai/dsh-client-ui-primitives` 的真实导出清单**来验证解析结果（没装 DSH 时该用例自动跳过，
-所以 CI 仍然全绿）。哪一次升级又把图标改名了，诊断环里的 `apply … icons={…}` 会直接写出 `fallback(...)`。
+（`apply` 抛错，没有按钮、没有面板、也没有提示）。
+
+0.2 那次更彻底：客户端半边**整个没跑起来**（会话存储里连一条 `apply` 都没有），因为 bundle 在
+`require("@deepseek-ai/dsh-client-ui-primitives")` 那一行就抛了。现在这些 require 都包在
+`optionalRequire()` 里，并且每一处用法都有本地实现兜底 —— 代价是少了原生的控件外观，
+换来的是"任何版本的模块表都不影响功能"。诊断环的 `apply build=N chrome=primitives|local` 就是答案。
+
+顺带修掉的两个坑（都是被测试逼出来的，值得记住）：
+
+- **`React.forwardRef` 返回的是对象，不是函数**：原先用 `typeof primitives.Button === "function"`
+  判断平台控件在不在，于是真机上真实的 `Button`（forwardRef 对象）被判成"不存在"，
+  插件会一直用自己那份 —— 判断必须接受 `$$typeof` 标记的对象。
+- **`createPortal` 在 `react-dom` 上，不在 `react-dom/client` 上**：写错模块会让自带对话框
+  直接 `return null`（弹窗永远不出现）。现在按 `react-dom` → `react-dom/client` 顺序找，
+  两处都没有时改用 `position:fixed` 的内联渲染，弹窗照样覆盖整个窗口。
 
 ### 升级 DSH 之后如果入口不见了
 

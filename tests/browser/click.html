@@ -270,18 +270,32 @@ async function run() {
 async function drive() {
   const registration = window.__smokeRegistration;
   if (registration === undefined) throw new Error('the bundle did not register itself');
+  // `?noprimitives=1` reproduces a client that seeds neither the primitives nor
+  // the client store — DSH 0.2 seeds React, Cordis and static libraries only, and
+  // its authoring guide says not to require a Harness client package at all. The
+  // bundle must draw its own chrome there, so this page asks for exactly that.
+  const noPrimitives = new URLSearchParams(window.location.search).has('noprimitives');
   const table = new Map([
     ['react', React],
     ['react-dom/client', { createRoot: (container) => ReactDOM.createRoot(container) }],
-    ['react/jsx-runtime', makeJsxRuntime()],
-    ['@deepseek-ai/dsh-client-store', clientStore],
-    ['@deepseek-ai/dsh-client-ui-primitives', primitives]
+    // `createPortal` lives on react-dom, exactly as it does in the app.
+    ['react-dom', { createPortal: ReactDOM.createPortal }],
+    ['react/jsx-runtime', makeJsxRuntime()]
   ]);
+  if (!noPrimitives) {
+    table.set('@deepseek-ai/dsh-client-store', clientStore);
+    table.set('@deepseek-ai/dsh-client-ui-primitives', primitives);
+  }
   const exports = registration.factory((spec) => {
-    if (!table.has(spec)) throw new Error(`unexpected require(${spec})`);
+    // A module the table does not hold throws, exactly as the real one does.
+    if (!table.has(spec)) throw new Error(`unknown module ${spec}`);
     return table.get(spec);
   });
   record('exportsApply', typeof exports.apply);
+  if (noPrimitives) {
+    await driveWithoutPrimitives(exports);
+    return;
+  }
 
   exports.apply(ctx);
   await frame(); await frame(); await frame();
@@ -493,6 +507,54 @@ async function drive() {
   barButton('永久删除').click();
   await frame(); await frame();
   record('deletedIds', window.__smokeDeleted.slice());
+}
+
+/**
+ * The same plugin on a client that seeds no platform packages.
+ *
+ * This is the DSH 0.2 shape: the bundle has to bring its own dialog, its own
+ * controls and its own store, and the whole feature still has to be there. The
+ * records below are the ones that can only be answered in a real browser.
+ */
+async function driveWithoutPrimitives(exports) {
+  exports.apply(ctx);
+  await frame(); await frame(); await frame();
+
+  const button = document.querySelector('.dsh-msel-inline');
+  record('fallbackButtonRendered', button !== null);
+  record('fallbackIcon', button === null ? null : button.querySelector('svg') !== null);
+  if (button === null) return;
+
+  // Inline mode is the default: one tick per row, and a bar over the list.
+  button.click();
+  await frame(); await frame();
+  const rows = [...document.querySelectorAll('[data-row-key^="session:"]')];
+  record('fallbackTicks', rows.filter((row) => row.querySelector('.dsh-msel-mark') !== null).length);
+  record('fallbackBar', document.querySelector('[data-dsh-msel-bar]') !== null);
+
+  // The other mode, and this time the dialog is the bundle's own: a portal with
+  // role="dialog", the panel inside it, and the bundle's own input control.
+  button.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+  await frame(); await frame();
+  const dialog = document.querySelector('.dsh-msel-modal[role="dialog"]');
+  record('fallbackDialog', dialog !== null);
+  record('fallbackDialogLabel', dialog?.getAttribute('aria-label') ?? null);
+  record('fallbackPanelInside', dialog?.querySelector('.dsh-msel-root') !== null);
+  record('fallbackOwnInput', dialog?.querySelector('input.dsh-msel-input') !== null);
+  record('fallbackGroups', dialog?.querySelectorAll('.dsh-msel-group').length ?? 0);
+  // The preference the entry button reads is persisted by the bundle's own store.
+  record('fallbackPersisted', (() => {
+    try {
+      return JSON.parse(localStorage.getItem('dsh.session.multiselect.v1') ?? '{}').mode ?? null;
+    } catch {
+      return 'unreadable';
+    }
+  })());
+
+  // The mask closes it, and no platform dialog was involved anywhere.
+  dialog?.parentElement?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  await frame(); await frame();
+  record('fallbackDialogClosed', document.querySelector('.dsh-msel-modal') === null);
 }
 
 function finish() {

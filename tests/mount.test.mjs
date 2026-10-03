@@ -522,13 +522,44 @@ test('every locale key the panel asks for exists in both dictionaries', () => {
 	assert.ok(asked.size > 20, `the surfaces should ask for a real set of labels, saw ${String(asked.size)}`)
 })
 
-test('apply refuses to mount when a structural primitive is missing', () => {
+test('apply mounts with its own dialog when the platform seeds no primitives', () => {
+	// DSH 0.2 seeds React, Cordis and static libraries only, and its authoring
+	// guide says not to require a Harness client package at all. A build like that
+	// must cost chrome, never the feature: the plugin draws its own dialog, its own
+	// controls, and its own store.
 	const bundle = loadBundle()
-	const primitives = makePrimitives([])
-	delete primitives.Modal
-	const { exports } = bundle.instantiate(primitives, makeReact())
-	const { ctx } = makeCtx({ sessions: makeSessions() })
-	assert.throws(() => exports.apply(ctx), /Modal/u)
+	const { exports } = bundle.instantiate({}, makeReact())
+	const { ctx, registrations, dictionaries } = makeCtx({ sessions: makeSessions() })
+	exports.apply(ctx)
+
+	const face = registrations[0].entry.options.inject()
+	assert.equal(typeof face.icons.checklist, 'function', 'the icons fall back to their own artwork')
+	assert.equal(typeof face.actions.entry, 'function', 'and the actions are all there')
+	assert.ok(dictionaries.has('sessionMultiselect'), 'the dictionaries registered as usual')
+
+	// The entry's dialog is this bundle's own implementation, driven by the same
+	// props the primitives' Modal takes.
+	const rendered = makeReact().withHooks('MultiSelectEntry', () => registrations[0].entry.component({
+		t: (key) => key,
+		actions: face.actions,
+		hooks: face.hooks,
+		icons: face.icons,
+		tip: face.tip
+	}))
+	const modal = rendered.props.children[1]
+	assert.equal(modal.type, exports.LocalModal, 'the dialog is the local one')
+	assert.equal(modal.props.open, false, 'closed until the button is clicked')
+	assert.equal(modal.props.title, 'panel.title')
+
+	// The store fallback keeps the preference the entry button reads, with the same
+	// surface: getSnapshot / subscribe / actions.
+	const store = face.hooks.store
+	assert.equal(typeof store.getSnapshot, 'function')
+	assert.equal(typeof store.subscribe, 'function')
+	assert.equal(store.getSnapshot().mode, 'inline', 'the fallback store still seeds its defaults')
+	store.actions.setMode('panel')
+	assert.equal(store.getSnapshot().mode, 'panel', 'and its actions write through')
+	assert.deepEqual(Object.keys(store.getSnapshot()).sort(), ['archivedIds', 'groupByWorkspace', 'inlineProven', 'mode', 'pinnedIds'])
 })
 
 test('a renamed or missing icon falls back to its own artwork instead of failing the mount', () => {

@@ -298,8 +298,8 @@ const poll = `new Promise((done) => {
  * only reproduce the failure.
  * @returns the verdict text.
  */
-async function collectVerdict() {
-	const target = await openTarget(pageUrl)
+async function collectVerdict(url = pageUrl) {
+	const target = await openTarget(url)
 	const client = makeClient(target.webSocketDebuggerUrl)
 	await client.ready
 	await client.send('Runtime.enable')
@@ -312,13 +312,12 @@ async function collectVerdict() {
 	}
 }
 
-let verdict = null
-let failure = null
-try {
+/** Open one page and parse its verdict, retrying once on a destroyed context. */
+async function verdictOf(url) {
 	let text = ''
 	for (let attempt = 0; attempt < 2; attempt += 1) {
 		try {
-			text = await collectVerdict()
+			text = await collectVerdict(url)
 			break
 		} catch (error) {
 			if (attempt === 1 || !/context was destroyed|Target closed|Session with given id/iu.test(error.message)) throw error
@@ -326,7 +325,19 @@ try {
 		}
 	}
 	if (!text.startsWith('{')) throw new Error(`the page never produced a verdict: ${text}`)
-	verdict = JSON.parse(text)
+	return JSON.parse(text)
+}
+
+let verdict = null
+let fallbackVerdict = null
+let failure = null
+try {
+	verdict = await verdictOf(pageUrl)
+	// The same bundle on a client that seeds no platform packages: DSH 0.2's
+	// module table holds React, Cordis and static libraries only, so the plugin
+	// has to draw its own dialog, controls and store. A separate page, because the
+	// module table is fixed when the bundle is materialized.
+	fallbackVerdict = await verdictOf(`${pageUrl}?noprimitives=1`)
 } catch (error) {
 	failure = error
 }
@@ -441,7 +452,10 @@ const checks = verdict === null ? [] : [
 		`the plugin recorded what it did (${(verdict.diagTrail ?? []).length} notes)`,
 		Array.isArray(verdict.diagTrail)
 			&& verdict.diagTrail.some((line) => line.includes('marks service'))
-			&& verdict.diagTrail.some((line) => line.includes('apply build=20'))
+			&& verdict.diagTrail.some((line) => line.includes('apply build=21'))
+			&& verdict.diagTrail.some((line) => line.includes('chrome=primitives'))
+			&& verdict.diagTrail.some((line) => line.includes('settings row registered'))
+			&& verdict.diagTrail.some((line) => line.includes('settings page registered'))
 			&& verdict.diagTrail.some((line) => line.includes('inline on'))
 			&& verdict.diagTrail.some((line) => line.includes('inline off'))
 			&& verdict.diagTrail.some((line) => line.includes('inline layout'))
@@ -450,7 +464,32 @@ const checks = verdict === null ? [] : [
 			&& verdict.diagTrail.some((line) => line.includes('panel rendered rows=4'))
 			&& verdict.diagTrail.some((line) => line.includes('delete done ok=4'))
 	],
-	['the page reported no errors', (verdict.errors ?? []).length === 0]
+	['the page reported no errors', (verdict.errors ?? []).length === 0],
+	// --- the same bundle with no platform packages seeded (the 0.2 shape) ---
+	[
+		`with no primitives seeded the entry button still appears (${String(fallbackVerdict?.fallbackButtonRendered)})`,
+		fallbackVerdict?.fallbackButtonRendered === true && fallbackVerdict?.fallbackIcon === true
+	],
+	[
+		`and inline mode still works there (${String(fallbackVerdict?.fallbackTicks)} ticks, bar ${String(fallbackVerdict?.fallbackBar)})`,
+		fallbackVerdict?.fallbackTicks === 4 && fallbackVerdict?.fallbackBar === true
+	],
+	[
+		`the panel opens as this bundle's own dialog (${String(fallbackVerdict?.fallbackDialogLabel)})`,
+		fallbackVerdict?.fallbackDialog === true
+			&& fallbackVerdict?.fallbackDialogLabel === '多选对话'
+			&& fallbackVerdict?.fallbackPanelInside === true
+	],
+	[
+		`with this bundle's own controls, and the same workspace grouping (${String(fallbackVerdict?.fallbackGroups)} groups)`,
+		fallbackVerdict?.fallbackOwnInput === true && fallbackVerdict?.fallbackGroups === 3
+	],
+	[
+		`the mode is persisted by the bundle's own store (${String(fallbackVerdict?.fallbackPersisted)})`,
+		fallbackVerdict?.fallbackPersisted === 'panel'
+	],
+	['the local dialog closes on its mask', fallbackVerdict?.fallbackDialogClosed === true],
+	['and that page reported no errors either', (fallbackVerdict?.errors ?? ['none']).length === 0]
 ]
 
 console.log(`page:    ${pageUrl}`)

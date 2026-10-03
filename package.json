@@ -1,6 +1,6 @@
 {
   "name": "dsh-session-multiselect",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "DSH web plugin: two ways to multi-select conversations — ticks drawn into the session list itself (DeepSeek-web style) or a workspace-grouped panel — then batch delete, archive or pin.",
   "type": "module",
   "license": "MIT",
