@@ -254,7 +254,7 @@ dsh plugin --profile web add .
 
 ## 安装
 
-插件是标准 DSH bundle 包（声明 `dsh.bundle.patch` + `dsh.client`），**没有依赖需要安装**：仓库里就是可直接加载的产物。安装后**需要重启 DSH Desktop**（profile 的 bundle 层栈与 `__DSH_BOOT__` 客户端图在启动时合成）。
+插件是标准 DSH bundle 包（声明 `dsh.bundle.patch` + `dsh.client`），**没有依赖需要安装**：仓库里就是可直接加载的产物。安装后**需要重启桌面应用**（profile 的 bundle 层栈与 `__DSH_BOOT__` 客户端图在启动时合成）。
 
 ```sh
 git clone https://github.com/xlxs123/dsh-session-multiselect.git
@@ -262,10 +262,22 @@ cd dsh-session-multiselect
 dsh plugin --profile web add .     # 路径含空格时务必在包目录内执行 `add .`
 ```
 
+**profile 名要对上正在用的那一个** —— 这是最容易踩的一脚：`$DSH_HOME/profiles/<名字>` 里没装这个插件，
+设置里当然不会有它的按钮，侧边栏也不会有它的入口。当前用的是哪个可以看 `DSH_PROFILE` 环境变量，
+或者直接确认插件在不在：
+
+```sh
+dsh plugin --profile desktop list    # 例：新版桌面应用用的是 desktop profile
+```
+
+> 新版桌面应用（`DeepSeek Harness`，harness `0.2.0-rc.2`）把默认 profile 从 `web` 换成了 `desktop`，
+> 而新 profile 是**空的**：旧 profile 里的插件一个都不会自动带过去。升级后如果发现"插件全没了"，
+> 先确认 profile 名，再对每个插件重装一次。没装的插件不会以任何形式出现在界面上 —— 这不是兼容问题。
+
 或直接使用 pnpm 再重启：
 
 ```sh
-# profile 目录：$DSH_HOME/profiles/web
+# profile 目录：$DSH_HOME/profiles/<名字>
 <pnpm> add "link:<本包绝对路径>"
 # 然后把 dsh-session-multiselect 追加到该 profile package.json 的 dsh.profile.bundles
 ```
@@ -273,8 +285,13 @@ dsh plugin --profile web add .     # 路径含空格时务必在包目录内执�
 > 注意：`dsh plugin` 在 Windows 上经 `shell: true` 转发参数，**路径中的空格会被拆开**。
 > 因此请在包目录内执行 `add .`，不要把含空格的绝对路径当作参数传入。
 
-卸载：`dsh plugin --profile web remove dsh-session-multiselect`（或从 profile 的
+卸载：`dsh plugin --profile <名字> remove dsh-session-multiselect`（或从 profile 的
 `dsh.profile.bundles` 里删掉这一项），重启后插件连同它的那一个 DOM 注入一起消失。
+
+> 自检（新版 CLI）：`dsh <临时profile名> --from-default-profile web --dump-config` 会打印合成后的
+> profile 树；把插件装进这个临时 profile 再 dump 一次，如果出现
+> `# == dsh-session-multiselect` / `- id: session-multiselect` 两行，就说明插件在这个版本上
+> 合成成功（不会因为 peer 兼容性被拦），剩下的只是重启应用。用完把该临时 profile 目录删掉即可。
 
 ## 开发
 
