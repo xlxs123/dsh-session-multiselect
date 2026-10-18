@@ -413,8 +413,13 @@ const checks = verdict === null ? [] : [
 		verdict.confirmVisible === true && verdict.deletedBeforeConfirm === 0
 	],
 	[
-		`and then deletes every ticked conversation (${(verdict.deletedIds ?? []).join(', ')})`,
+		`and then asks the host route to delete every ticked conversation (${(verdict.deletedIds ?? []).join(', ')})`,
 		JSON.stringify(verdict.deletedIds) === JSON.stringify(['a', 'b'])
+	],
+	[
+		`over \`GET /session-multiselect/delete\` with the ids as repeated parameters (${(verdict.deleteUrls ?? []).join(' ')})`,
+		(verdict.deleteUrls ?? []).some((url) => url.startsWith('/session-multiselect/delete?')
+			&& new URLSearchParams(url.slice(url.indexOf('?') + 1)).getAll('ids').join(',') === 'a,b')
 	],
 	['the mask closes it again', verdict.modalClosedAgain === true],
 	[
@@ -425,7 +430,7 @@ const checks = verdict === null ? [] : [
 		`the plugin recorded what it did (${(verdict.diagTrail ?? []).length} notes)`,
 		Array.isArray(verdict.diagTrail)
 			&& verdict.diagTrail.some((line) => line.includes('marks service'))
-			&& verdict.diagTrail.some((line) => line.includes('apply build=23'))
+			&& verdict.diagTrail.some((line) => /apply build=\d+/u.test(line))
 			&& verdict.diagTrail.some((line) => line.includes('chrome=primitives'))
 			&& verdict.diagTrail.some((line) => line.includes('panel open'))
 			&& verdict.diagTrail.some((line) => line.includes('panel rendered rows=4'))

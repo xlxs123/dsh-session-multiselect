@@ -276,7 +276,9 @@ function makeCtx({ sessions, workspaces }) {
  * flattened `{ items, 鈥?}` projection. Both must list sessions.
  */
 function makeSessions({ items = [], records = {}, onCreate = () => 'new-session', shape = 'normalized' } = {}) {
-	const calls = { deleted: [], forked: [], created: [], prompted: [], opened: [] }
+	const calls = { deleted: [], forked: [], created: [], prompted: [], opened: [], refreshed: 0 }
+	/** Set by the fetch stub below; restores the real `fetch` for this world. */
+	let restoreFetch = () => {}
 	let summaries = [...items]
 	/** Rebuild the snapshot in the shape under test. */
 	const buildState = () => {
@@ -300,6 +302,52 @@ function makeSessions({ items = [], records = {}, onCreate = () => 'new-session'
 	}
 	let listState = buildState()
 	const listListeners = new Set()
+	/**
+	 * Deletion is a host route, not a client method.
+	 *
+	 * DSH's client `sessions` service has no `delete` (that missing method was
+	 * the bug this suite used to encode), so the bundle requests
+	 * `GET /session-multiselect/delete?ids=…` and the Node half removes the
+	 * directories. The stub below mirrors that route's response contract —
+	 * per-id `{ ok, removed, reason }` — and keeps mutating the list feed so
+	 * every assertion about the panel refreshing still means something. The
+	 * `refresh()` method mirrors the controller call the bundle makes after a
+	 * successful delete so the rows leave the panel without a page reload.
+	 */
+	const realFetch = globalThis.fetch
+	globalThis.fetch = async (input, init = {}) => {
+		const url = typeof input === 'string' ? input : String(input?.url ?? input)
+		if (!url.includes('/session-multiselect/delete')) {
+			if (realFetch === undefined) throw new Error(`unexpected fetch: ${init.method ?? 'GET'} ${url}`)
+			return realFetch(input, init)
+		}
+		const requested = [...new URL(url, 'http://dsh.internal').searchParams.getAll('ids')]
+		const results = []
+		for (const sessionId of requested) {
+			calls.deleted.push(sessionId)
+			const index = summaries.findIndex((item) => item.sessionId === sessionId)
+			if (index === -1) {
+				results.push({ id: sessionId, ok: true, removed: false, reason: 'not found' })
+				continue
+			}
+			summaries = summaries.filter((item) => item.sessionId !== sessionId)
+			results.push({ id: sessionId, ok: true, removed: true })
+		}
+		listState = buildState()
+		for (const fn of [...listListeners]) fn()
+		return {
+			ok: true,
+			status: 200,
+			async json() {
+				return { ok: true, removed: results.filter((r) => r.removed).length, results }
+			}
+		}
+	}
+	/** Put the real fetch back once this world is done with. */
+	restoreFetch = () => {
+		if (realFetch === undefined) delete globalThis.fetch
+		else globalThis.fetch = realFetch
+	}
 	const service = {
 		list: {
 			getSnapshot: () => listState,
@@ -323,14 +371,6 @@ function makeSessions({ items = [], records = {}, onCreate = () => 'new-session'
 				}
 			}
 		},
-		async delete(sessionId) {
-			calls.deleted.push(sessionId)
-			const index = summaries.findIndex((item) => item.sessionId === sessionId)
-			if (index === -1) throw Object.assign(new Error('unknown session'), { code: 'session/not-found' })
-			summaries = summaries.filter((item) => item.sessionId !== sessionId)
-			listState = buildState()
-			for (const fn of [...listListeners]) fn()
-		},
 		async fork(opts) {
 			calls.forked.push(opts.sessionId)
 			return `${opts.sessionId}-fork`
@@ -340,8 +380,15 @@ function makeSessions({ items = [], records = {}, onCreate = () => 'new-session'
 			return onCreate(opts)
 		},
 		open(sessionId) { calls.opened.push(sessionId) },
+		/** The controller's baseline re-pull, which the bundle calls after a delete. */
+		async refresh() {
+			calls.refreshed += 1
+			listState = buildState()
+			for (const fn of [...listListeners]) fn()
+		},
 		calls
 	}
+	service.restoreFetch = () => restoreFetch()
 	return service
 }
 
@@ -601,12 +648,38 @@ test('deleteSessions reports per-session failures without aborting the batch', a
 			{ sessionId: 'b', title: 'B', updatedAt: 2 }
 		]
 	})
+	// `missing` is not in the list: the host route reports it as already gone
+	// (`ok: true, removed: false`), which the panel counts as deleted — the
+	// user's intent is "this row must not come back". Every id still reaches the
+	// route, and the batch is not aborted by the odd one out.
 	const result = await world.face.actions.deleteSessions(['a', 'missing', 'b'])
-	assert.equal(result.ok, 2)
-	assert.equal(result.failed.length, 1)
-	assert.equal(result.failed[0].id, 'missing')
-	assert.match(result.failed[0].reason, /session\/not-found/u)
+	assert.equal(result.ok, 3, 'an already-gone session counts as deleted')
+	assert.equal(result.failed.length, 0)
 	assert.deepEqual(world.sessions.calls.deleted, ['a', 'missing', 'b'])
+	world.sessions.restoreFetch()
+})
+
+test('a missing delete route blames the un-restarted host, not the session', async () => {
+	const world = mount({
+		items: [{ sessionId: 'a', title: 'A', updatedAt: 3 }]
+	})
+	// This is the state the user actually hit: the client half shipped, the Node
+	// half in the running DSH did not (host plugins do not hot-reload). A bare
+	// 404 would read like "no such session" and send them looking in the wrong
+	// place, so the reason must name the restart.
+	const realFetch = globalThis.fetch
+	globalThis.fetch = async () => ({ status: 404, ok: false, async json() { return {} } })
+	try {
+		const result = await world.face.actions.deleteSessions(['a'])
+		assert.equal(result.ok, 0)
+		assert.equal(result.failed.length, 1)
+		assert.equal(result.failed[0].id, 'a')
+		assert.match(result.failed[0].reason, /重启 DSH/u)
+		assert.doesNotMatch(result.failed[0].reason, /not a function/u)
+	} finally {
+		globalThis.fetch = realFetch
+		world.sessions.restoreFetch()
+	}
 })
 
 test('the entry renders closed, and opening it reveals the panel', () => {
@@ -757,6 +830,25 @@ test('the open panel lists one row per selectable session and hides blank ones',
 	assert.equal(list.props['aria-multiselectable'], 'true')
 })
 
+test('the panel hides subagent sessions the shell itself never lists', () => {
+	const world = mount({
+		items: [
+			{ sessionId: 'a', title: 'Alpha', updatedAt: 30, cwd: 'D:\\x' },
+			// `origin: 'subagent'` is how DSH's own sidebar decides a session is a
+			// session-log internal: it badges the parent with a running-child count
+			// and never renders a row. Its bare-UUID id is what used to poison a
+			// delete batch, so the panel must not offer it either.
+			{ sessionId: '11111111-1111-1111-1111-111111111111', title: 'Child agent', updatedAt: 25, cwd: 'D:\\x', origin: 'subagent', parentId: 'a' },
+			{ sessionId: 'b', title: 'Beta', updatedAt: 10, cwd: 'D:\\x' }
+		]
+	})
+	const rows = listRows(world.renderPanelBody())
+	assert.deepEqual(rows.map(rowTitle), ['Alpha', 'Beta'], 'no row for the subagent session')
+	// The group heading counts only real conversations, too.
+	const heading = listGroups(world.renderPanelBody())[0]
+	assert.equal(heading.props.children[2].props.children, 'group.count{"n":0,"m":2}')
+})
+
 test('the panel heads every workspace group and selects one with a single click', () => {
 	const items = [
 		{ sessionId: 'a', title: 'Alpha', updatedAt: 30, cwd: 'D:\\alpha' },
@@ -861,7 +953,7 @@ test('select-all selects every visible row and then offers to clear', () => {
 	assert.match(toolbar.props.children[toolbar.props.children.length - 1].props.children, /"n":2/u)
 })
 
-test('delete asks for confirmation before touching the service', () => {
+test('delete asks for confirmation, then re-pulls the list so the row leaves', async () => {
 	const world = mount({
 		items: [
 			{ sessionId: 'a', title: 'Alpha', updatedAt: 30 },
@@ -884,6 +976,10 @@ test('delete asks for confirmation before touching the service', () => {
 	// Confirming starts the deletion (the batch runs asynchronously).
 	confirmPanel.props.children[1].props.children[0].props.onClick()
 	assert.deepEqual(world.sessions.calls.deleted, ['a'])
+	await flush()
+	assert.equal(world.sessions.calls.refreshed, 1, 'the deleted row must leave the list without a reload')
+	// The row is gone; the other one is untouched.
+	assert.deepEqual(listRows(world.renderPanelBody()).map(rowTitle), ['Beta'])
 })
 
 test('the panel offers three actions, and the last two work in both directions', async () => {

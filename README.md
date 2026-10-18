@@ -45,7 +45,7 @@ nightly**（Harness **0.2.0-rc.2**）的 Web 客户端上开发并实测（Windo
 
 **面板多选**
 
-- 复选框列表（只列出真实对话，自动隐藏空白会话）
+- 复选框列表（只列出真实对话，自动隐藏空白会话与子智能体会话）
 - **按工作区分组**：每个工作区一个标题（**显示完整路径**，路径过长时省略号出现在左侧、保留尾部目录名），
   标题上带 `已选/总数`；点标题一次即可**整组勾选/取消**。分组顺序按该组内最新对话的时间排，
   没记录工作目录的会话单独归到最后一组。工具栏的「按工作区分组」可以关掉（关掉后回到单纯按时间排序的
@@ -134,6 +134,16 @@ nightly**（Harness **0.2.0-rc.2**）的 Web 客户端上开发并实测（Windo
 （`title` → `cwd` → id 依次兜底）。面板在 `normalizeSummary()` 里补齐这两个字段，并且**跳过没有可用 id 的行** ——
 否则每一行都会落在同一个 `undefined` 键上，表现就是「选一行 = 全选」，批量动作也会指向空 id。
 测试夹具直接使用控制器的真实形状，就是为了让这类 bug 无法回流。
+
+### 子智能体会话不是对话
+
+DSH 的会话树里还有一类 **subagent 会话**：日志头 `origin: "subagent"`、`parentSession` 指向父对话，
+**目录名与 id 都是裸 UUID**（没有 `session-` 前缀）。原生侧边栏从不把它们渲染成行，只在父行上显示
+「N 个子智能体运行中」。0.4.1 起面板同样跳过它们（`origin === "subagent"`）——在此之前它们会出现在面板里，
+而「全选」或点工作区标题都会把裸 UUID 带进删除批次，host 路由按 `session-…` 校验 id，
+于是**整批**返回 `HTTP 400: invalid session id`，一条都删不掉。删除路由现在两种 id 拼写都接受
+（`session-<uuid>` 与裸 `<uuid>`），但子智能体会话依然不在面板里列出：要清理它们的日志，属于
+文件系统层面的维护，不是这个面板的职责。
 
 ### 自己的翻译器
 
@@ -257,17 +267,19 @@ dsh plugin --profile desktop list    # 例：新版桌面应用用的是 desktop
 ## 开发
 
 ```
-lib/index.js      Node half（空实现：本插件没有 host 侧功能）
+lib/index.js      Node half：会话删除路由（GET /session-multiselect/delete）
 lib/client.js     浏览器 bundle：选择模型、批量动作、头部注入与面板（window.__ModuleLoader__ 契约）
 src/index.ts      Node half 源码
-tests/            53 个测试：纯逻辑单测 + 以假 Cordis 上下文挂载真实 bundle + 头部注入与点击（含 DOM 桩）
+tests/            64 个测试：纯逻辑单测 + 以假 Cordis 上下文挂载真实 bundle + 头部注入与点击（含 DOM 桩）
+                  + 删除路由对着临时 DSH_HOME 做真实文件系统验证（含子智能体会话的裸 UUID id）
+                  + 面板隐藏子智能体会话、删除后重拉列表
                   + 对着本机安装的 primitives 真实导出清单做兼容性验证
 tests/browser/    真实浏览器冒烟测试：真 React 18 + 无头 Chromium + 复制自工作区插件的头部与行 CSS
 ```
 
 ```sh
 npm install                            # 只装 devDependencies（react/react-dom/ws），供测试当 React/WebSocket 源
-npm test                               # = node --test  （53 个测试，约 0.5 秒）
+npm test                               # = node --test  （64 个测试，约 0.7 秒）
 npm run test:browser                   # 真实浏览器冒烟：需要 Chrome/Edge（自动探测路径）
 npm run diag                           # 从桌面应用的 Session Storage 里读出诊断环
 ```
@@ -304,7 +316,25 @@ Node 只要 20+：CDP 客户端优先用 Node 自带的 `WebSocket`（v22 起才
 - **归档/置顶依赖工作区控制器**：`workspaces` 服务存在时两者都是真实操作（原生列表分组跟着变）；
   服务缺失时归档退回插件本地标记（状态行会写明），置顶则直接报错说明没有该接口。
 - **正在运行的对话不能归档**：这是 host 侧规则，会在状态行里逐行列出被拒绝的 id 与原因。
-- **删除不可撤销**：批量删除走官方永久删除契约，这是设计如此，确认框会明确写出数量。
+- **删除走 Node 半的自有路由，不是官方契约**：DSH 客户端**没有**删除会话的能力 ——
+  运行时的 `ISessions` 面只有 `list` / `open` / `fork` / `binding` / `scope` / `openSubagent`，
+  协议层也只声明 `sessionCapabilities: { close, list, resume }`（**没有 `delete`**）。
+  因此 `ctx.sessions.delete(id)` 必然抛 `TypeError: sessions.delete is not a function`，
+  面板曾把这条原文直接甩给用户（见下）。
+  现在删除由 Node 半实现：客户端请求 `GET /session-multiselect/delete?ids=…`，
+  宿主进程删掉 `$DSH_HOME/sessions/<工作区>/<会话id>/` 目录及其投影缓存
+  （`storages/session_projcache/sessions/<会话id>.json` 是当前布局，`/<uuid>/` 是旧布局，两处都清）。
+  id 的两种拼写都接受：顶层会话 `session-<uuid>`、子智能体会话裸 `<uuid>`；目录查找先按原拼写、
+  再试另一种，避免误删。删除成功后客户端会调 `ctx.sessions.refresh()` 重拉列表，
+  被删的行立刻从面板和原生侧边栏消失，不需要手动刷新页面。
+  实现与测试在 `src/index.ts` / `lib/index.js` / `tests/delete-route.test.mjs`。
+- **该路由只用 GET**：DSH 的 Web 服务器对**任何** POST 都回 405 —— 实测即便 POST 到一个
+  完全不存在的路径也是 405，而 GET 会正常落到路由（不存在则 404）。所以插件路由只能走 GET，
+  ids 以重复的查询参数传递。**改 host 半后必须重启 DSH**（客户端 bundle 支持热更，宿主进程不会重载）。
+- **删除不可撤销**：这是设计如此，确认框会明确写出数量。目录级删除不进回收站；
+  要可还原的清理请用 `cleanup-sessions.ps1`（默认演练 + 送回收站）。
+- **正在打开的对话不建议删除**：删除路由只动磁盘，host 内存里仍持有那个会话；删除后它的行可能还会被
+  列表带回来（与「运行中的会话不能归档」不同，这条路没有 host 侧拒绝）。要彻底清掉，先关掉/退出该对话再删。
 - **Fork / 导出 / 汇总给 AI / 未读 仍未提供**：它们在 0.2.0 被移除（含实现与测试），
   需要时用 `git revert` 回滚对应提交，或在 0.1.0 的 tag/提交上取。
 - **只在 Web 客户端上做过实测**：插件声明 `platform: "web"`；Tauri/其他壳未验证（理论上同构，

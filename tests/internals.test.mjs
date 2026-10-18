@@ -108,6 +108,22 @@ test('visibleRows lifts pinned rows above recency, the way DSH lists them', () =
 	assert.deepEqual(archived.map((row) => row.sessionId), ['newest', 'middle'])
 })
 
+test('visibleRows hides subagent sessions but keeps forked conversations', () => {
+	const snapshot = {
+		items: [
+			{ sessionId: 'main', title: 'Main', updatedAt: 40 },
+			{ sessionId: '11111111-1111-1111-1111-111111111111', title: 'Child agent', updatedAt: 30, origin: 'subagent', parentSessionId: 'main' },
+			{ sessionId: 'fork', title: 'Fork', updatedAt: 20, parentSessionId: 'main' }
+		]
+	}
+	const rows = helpers.visibleRows(snapshot, {}, '', false)
+	// A subagent session is session-log internals: DSH's own sidebar filters
+	// `origin === 'subagent'` out and badges the parent instead, so the panel must
+	// not offer it either — its bare-UUID id in a delete batch used to fail the
+	// whole request. A forked session is a real conversation with lineage and stays.
+	assert.deepEqual(rows.map((row) => row.sessionId), ['main', 'fork'])
+})
+
 test('markStatusText names what really happened, partial failures included', () => {
 	const asked = []
 	const t = (key, params) => {
@@ -161,7 +177,7 @@ test('selectAll and invertSelection operate on the displayed order', () => {
 })
 
 test('workspaceLabel reads the final path segment of either separator style', () => {
-	assert.equal(helpers.workspaceLabel('D:\\create plugins-dhs'), 'create plugins-dhs')
+	assert.equal(helpers.workspaceLabel('D:\\projects\\demo app'), 'demo app')
 	assert.equal(helpers.workspaceLabel('/home/dev/project/'), 'project')
 	assert.equal(helpers.workspaceLabel('plain'), 'plain')
 	assert.equal(helpers.workspaceLabel(''), '')

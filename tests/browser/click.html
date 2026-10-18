@@ -208,11 +208,17 @@ const primitives = {
 // panel that listed nothing would fail here. The rows span three workspaces, so
 // the grouping has something real to lay out: two sessions in one workspace, one
 // in another, and one with no recorded workspace at all.
+//
+// The last fixture is a SUBAGENT session (`origin: 'subagent'`, bare-UUID id,
+// `parentId` pointing at 'a'). DSH's own sidebar never lists one, and the panel
+// must not either — so the row count asserted by the harness stays four. If a
+// future change starts listing it, every row/grouping assertion here fails.
 const summaries = [
   { sessionId: 'a', title: '第一个对话', blank: false, cwd: 'D:/work/alpha', updatedAt: 30 },
   { sessionId: 'b', title: '第二个对话', blank: false, cwd: 'D:/work/alpha', updatedAt: 20 },
   { sessionId: 'c', title: '第三个对话', blank: false, cwd: 'D:/work/beta', updatedAt: 10 },
-  { sessionId: 'd', title: '没有工作区的对话', blank: false, updatedAt: 5 }
+  { sessionId: 'd', title: '没有工作区的对话', blank: false, updatedAt: 5 },
+  { sessionId: '11111111-2222-3333-4444-555555555555', title: '子智能体任务', blank: false, cwd: 'D:/work/alpha', updatedAt: 40, origin: 'subagent', parentId: 'a' }
 ];
 const byId = {};
 for (const summary of summaries) byId[summary.sessionId] = summary;
@@ -233,11 +239,39 @@ const sessions = {
     events: { entries: () => [] },
     prompt: async () => ({ ok: true })
   }),
-  // Recorded, so the harness can prove a batch really reached the service.
+  // Kept for the older contract's sake, but deletion no longer travels through
+  // the client session service: DSH's client service has no `delete`, so the
+  // bundle requests its own host route (stubbed below). `refresh` mirrors the
+  // controller baseline re-pull the bundle calls after a successful delete, so
+  // rows leave the panel without a reload.
   delete: async (sessionId) => { window.__smokeDeleted.push(sessionId); },
+  refresh: async () => {},
   fork: async () => {}, create: async () => 'x', open: () => {}
 };
 window.__smokeDeleted = [];
+// The host half's delete route, played by the fixture.
+//
+// The bundle reaches the Node half over `GET /session-multiselect/delete?ids=…`
+// (GET because this build's Web server 405s every POST that reaches it), so the
+// stub records what the query string carried and answers with the shape the host
+// half sends: `{ ok, removed, results: [{ id, ok, removed }] }`. A fixture that
+// let this fall through to the static server would see a 404 and the panel would
+// (correctly) report "the delete route is not loaded".
+window.__smokeDeleteUrls = [];
+window.fetch = async (input) => {
+  const url = new URL(String(input), window.location.origin);
+  window.__smokeDeleteUrls.push(`${url.pathname}?${url.searchParams.toString()}`);
+  if (url.pathname !== '/session-multiselect/delete') {
+    return new Response(JSON.stringify({ ok: false, error: 'not found' }), { status: 404 });
+  }
+  const ids = url.searchParams.getAll('ids');
+  window.__smokeDeleted.push(...ids);
+  const results = ids.map((id) => ({ id, ok: true, removed: true }));
+  return new Response(JSON.stringify({ ok: true, removed: ids.length, results }), {
+    status: 200,
+    headers: { 'content-type': 'application/json' }
+  });
+};
 // The row's own click, which inline mode must pre-empt: opening a conversation
 // in the middle of ticking rows would lose the selection.
 window.__smokeOpened = [];
@@ -394,7 +428,7 @@ async function drive() {
   record('pinnedIds', workspaces.calls.pinned.slice());
   record('pinButtonFlip', [...document.querySelectorAll('.dsh-msel-actions button')].map((node) => node.textContent).includes('取消置顶'));
 
-  // Deleting asks first, then reaches the service once per id.
+  // Deleting asks first, then reaches the host route once per id.
   actionNamed('删除')?.click();
   await frame();
   record('confirmVisible', document.querySelector('.dsh-msel-confirm') !== null);
@@ -402,6 +436,7 @@ async function drive() {
   document.querySelector('.dsh-msel-confirm .dsh-msel-danger')?.click();
   await frame(); await frame();
   record('deletedIds', window.__smokeDeleted.slice());
+  record('deleteUrls', window.__smokeDeleteUrls.slice());
 
   // Close it the way a user does — through the mask — so React really unmounts
   // the portal, then click the button again at its centre with a dispatched
