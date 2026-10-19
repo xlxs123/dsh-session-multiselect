@@ -523,6 +523,65 @@ test('force-open trashes a conversation the host still holds and says so', async
   }
 })
 
+test('purge permanently drops one trash entry, and only from the trash', async () => {
+  const { home, ids, wsA } = await makeHome()
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  try {
+    const plugin = await import(`${MODULE.href}?case=purge`)
+    const handler = mountRoute(plugin)
+    const deleted = fakeExchange('GET', [ids.live])
+    await handler(deleted.req, deleted.res)
+    assert.equal((await readdir(trashRootOf(home))).length, 1)
+
+    const purged = fakeExchange('GET', [ids.other], '/session-multiselect/purge')
+    await handler(purged.req, purged.res)
+    assert.equal(purged.res.status, 200)
+    assert.equal(purged.res.payload.purged, 0, 'a session that never entered the trash is not purgeable')
+    assert.equal(purged.res.payload.results[0].ok, false)
+    assert.match(purged.res.payload.results[0].reason, /回收站/u)
+
+    const done = fakeExchange('GET', [ids.live], '/session-multiselect/purge')
+    await handler(done.req, done.res)
+    assert.equal(done.res.payload.purged, 1)
+    assert.deepEqual(await readdir(trashRootOf(home)), [], 'the entry is gone for good')
+    assert.equal(existsSync(join(wsA, ids.live)), false, 'and it was never restored')
+
+    // A trashed conversation the Host held open cannot come back either.
+    const missing = fakeExchange('GET', [ids.live], '/session-multiselect/purge')
+    await handler(missing.req, missing.res)
+    assert.equal(missing.res.payload.purged, 0)
+  } finally {
+    process.env.DSH_HOME = previous
+    await rm(home, { recursive: true, force: true })
+  }
+})
+
+test('purge all empties the whole trash', async () => {
+  const { home, ids } = await makeHome()
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  try {
+    const plugin = await import(`${MODULE.href}?case=purgeall`)
+    const handler = mountRoute(plugin)
+    for (const id of [ids.live, ids.other]) {
+      const deleted = fakeExchange('GET', [id])
+      await handler(deleted.req, deleted.res)
+    }
+    assert.equal((await readdir(trashRootOf(home))).length, 2)
+
+    const purgeAll = fakeExchange('GET', [], '/session-multiselect/purge', { all: '1' })
+    await handler(purgeAll.req, purgeAll.res)
+    assert.equal(purgeAll.res.status, 200)
+    assert.equal(purgeAll.res.payload.all, true)
+    assert.equal(purgeAll.res.payload.purged, 2)
+    assert.deepEqual(await readdir(trashRootOf(home)), [])
+  } finally {
+    process.env.DSH_HOME = previous
+    await rm(home, { recursive: true, force: true })
+  }
+})
+
 test('trash entries older than the retention window are purged', async () => {
   const { home, ids } = await makeHome()
   const previous = process.env.DSH_HOME

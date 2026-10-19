@@ -3,6 +3,13 @@
 版本号与 [GitHub Releases](https://github.com/xlxs123/dsh-session-multiselect/releases) 同步。
 推送 `v*` tag 时由 `.github/workflows/release.yml` 校验版本、跑测试、并发布带版本无关 tarball 的 Release。
 
+## 0.6.0
+
+- 回收站管理：每条显示「还剩 N 天」；支持**永久删除单条**与**清空回收站**，都带二次确认
+  （新增 `GET /session-multiselect/purge`：`?ids=…` 删指定条目、`?all=1` 清空；只作用于
+  `$DSH_HOME/trash/session-multiselect/`，永远不会碰打开中的会话）。
+- 删除确认更明确：列出最多 3 个将被删除的对话标题，而不是只给数量。
+- 测试 82 个；诊断 BUILD 29。
 ## 0.5.2
 
 - 回收站每行改为**两行布局**：标题独占一行拿回全部宽度，工作区路径与删除时间在下一行。

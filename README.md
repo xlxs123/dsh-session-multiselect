@@ -50,6 +50,8 @@ nightly**（Harness **0.2.0-rc.2**）的 Web 客户端上开发并实测（Windo
 - **删除进回收站，可恢复**：删除不是 `rm -rf`，而是把会话目录（连同投影缓存）移进
   `$DSH_HOME/trash/session-multiselect/`，保留 **7 天**；面板工具栏的「回收站」列出最近删除的对话
   （标题/工作区/删除时间），一键「恢复」放回原工作区。超过 7 天的条目在下次删除/查看/恢复时自动清理。
+  回收站里每条还显示「还剩 N 天」，可**永久删除单条**或**清空回收站**（都会二次确认）；
+  删除确认框会列出最多 3 个将被删除的对话标题，而不是只给一个数字。
 - **打开中的对话分两种处理**：**正在运行**的对话拒绝删除（文件正在写，插件无法卸载它，状态行会说明）；
   只是被 DSH **打开过、当前空闲**的对话会照常移进回收站，状态行会提示"其中 N 个仍被打开：
   列表里的行会在重启 DSH 后消失"——文件已经安全躺在回收站，可恢复。
@@ -289,10 +291,10 @@ dsh plugin --profile desktop list    # 例：新版桌面应用用的是 desktop
 lib/index.js      Node half：会话删除路由（GET /session-multiselect/delete）
 lib/client.js     浏览器 bundle：选择模型、批量动作、头部注入与面板（window.__ModuleLoader__ 契约）
 src/index.ts      Node half 源码
-tests/            79 个测试：纯逻辑单测 + 以假 Cordis 上下文挂载真实 bundle + 头部注入与点击（含 DOM 桩）
+tests/            82 个测试：纯逻辑单测 + 以假 Cordis 上下文挂载真实 bundle + 头部注入与点击（含 DOM 桩）
                   + 删除路由对着临时 DSH_HOME 做真实文件系统验证（含子智能体会话的裸 UUID id、
                     打开中的会话被拒绝、dry 探针、跨站拒绝、批量上限）
-                  + 回收站：删除移入 trash、列表/恢复往返、目标冲突拒绝、7 天过期清理
+                  + 回收站：删除移入 trash、列表/恢复往返、目标冲突拒绝、7 天过期清理、永久删除与清空
                   + 面板隐藏子智能体会话、删除后重拉列表、大批量自动分批、回收站视图与恢复；footer 入口避开 slot 渲染器保留键
                   + 对着本机安装的 primitives 真实导出清单做兼容性验证
 tests/browser/    真实浏览器冒烟测试：真 React 18 + 无头 Chromium + 复制自工作区插件的头部与行 CSS
@@ -300,7 +302,7 @@ tests/browser/    真实浏览器冒烟测试：真 React 18 + 无头 Chromium +
 
 ```sh
 npm install                            # 只装 devDependencies（react/react-dom/ws），供测试当 React/WebSocket 源
-npm test                               # = node --test  （79 个测试，约 1.4 秒）
+npm test                               # = node --test  （82 个测试，约 1.5 秒）
 npm run test:browser                   # 真实浏览器冒烟：需要 Chrome/Edge（自动探测路径）
 npm run diag                           # 从桌面应用的 Session Storage 里读出诊断环
 

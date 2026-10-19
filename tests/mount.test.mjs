@@ -276,7 +276,7 @@ function makeCtx({ sessions, workspaces }) {
  * flattened `{ items, 鈥?}` projection. Both must list sessions.
  */
 function makeSessions({ items = [], records = {}, onCreate = () => 'new-session', shape = 'normalized', trashEntries = [], openOnDelete = [] } = {}) {
-	const calls = { deleted: [], forked: [], created: [], prompted: [], opened: [], refreshed: 0, deleteRequests: 0, trashRequests: 0, restored: [] }
+	const calls = { deleted: [], forked: [], created: [], prompted: [], opened: [], refreshed: 0, deleteRequests: 0, trashRequests: 0, restored: [], purged: [], purgeRequests: 0 }
 	/** Set by the fetch stub below; restores the real `fetch` for this world. */
 	let restoreFetch = () => {}
 	let summaries = [...items]
@@ -339,6 +339,17 @@ function makeSessions({ items = [], records = {}, onCreate = () => 'new-session'
 					return { ok: true, restored: results.length, results }
 				}
 			}
+		}
+		if (url.includes('/session-multiselect/purge')) {
+			calls.purgeRequests += 1
+			const purgeUrl = new URL(url, 'http://dsh.internal')
+			if (purgeUrl.searchParams.get('all') === '1') {
+				calls.purged.push('all')
+				return { ok: true, status: 200, async json() { return { ok: true, all: true, purged: trashEntries.length, results: [] } } }
+			}
+			const purgeIds = purgeUrl.searchParams.getAll('ids')
+			calls.purged.push(...purgeIds)
+			return { ok: true, status: 200, async json() { return { ok: true, purged: purgeIds.length, results: purgeIds.map((id) => ({ id, ok: true, purged: true })) } } }
 		}
 		if (!url.includes('/session-multiselect/delete')) {
 			if (realFetch === undefined) throw new Error(`unexpected fetch: ${init.method ?? 'GET'} ${url}`)
@@ -795,6 +806,20 @@ function listRows(body) {
 	return listChildren(body).filter((node) => node.props.className === 'dsh-msel-row')
 }
 
+/**
+ * The buttons of the confirmation strip.
+ *
+ * A title-list line was added between the copy and the buttons, so index-based
+ * walks through the strip are brittle; find its toolbar by class instead.
+ */
+function confirmButtons(body) {
+	const bar = body.props.children[2]
+	assert.ok(bar !== null && bar !== undefined, 'a confirmation strip must be open')
+	const toolbar = bar.props.children.find((child) => child !== null && child !== undefined && child.props !== undefined && child.props.className === 'dsh-msel-toolbar')
+	assert.ok(toolbar !== undefined, 'the confirmation strip has a toolbar')
+	return toolbar.props.children
+}
+
 function listGroups(body) {
 	return listChildren(body).filter((node) => node.props.className === 'dsh-msel-group')
 }
@@ -931,8 +956,13 @@ test('the restore view lists trashed conversations and puts one back', async () 
 	assert.equal(sub.props.className, 'dsh-msel-trashSub')
 	assert.equal(sub.props.children[1].props.className, 'dsh-msel-trashWhen')
 	assert.match(String(sub.props.children[1].props.children), /trash\.deletedAt/u)
-	const restoreButton = rows[0].props.children[1].props.children
+	assert.equal(sub.props.children[2].props.className, 'dsh-msel-trashRemaining', 'the remaining days are shown')
+	assert.match(String(sub.props.children[2].props.children), /trash\.remaining/u)
+	const trashActions = rows[0].props.children[1]
+	assert.equal(trashActions.props.className, 'dsh-msel-trashAction')
+	const restoreButton = trashActions.props.children[0]
 	assert.equal(restoreButton.props.children, 'trash.restore')
+	assert.equal(trashActions.props.children[1].props.children, 'trash.purge', 'each row can be purged for good')
 
 	restoreButton.props.onClick()
 	for (let tick = 0; tick < 5; tick += 1) await flush()
@@ -943,11 +973,53 @@ test('the restore view lists trashed conversations and puts one back', async () 
 	assert.match(String(status.props.children), /trash\.restored/u)
 
 	// Back to the conversation list: the session row is there again.
-	trashView.props.children[0].props.children[1].props.onClick()
+	trashView.props.children[0].props.children[2].props.onClick()
 	const back = world.renderPanelBody()
 	const backToolbar = back.props.children[0]
 	assert.equal(backToolbar.props.children[backToolbar.props.children.length - 1].props.children, 'trash.open', 'the toolbar offers the trash again')
 	assert.deepEqual(listRows(back).map(rowTitle), ['Alpha'])
+})
+
+test('the trash can permanently delete one entry and be emptied in one go', async () => {
+	const world = mount({
+		items: [{ sessionId: 'a', title: 'Alpha', updatedAt: 30 }],
+		trashEntries: [
+			{ id: 'gone', title: 'Gone', workspace: 'D:\\x', deletedAt: 1700000000000, entry: '1-gone' },
+			{ id: 'gone2', title: 'Gone2', workspace: 'D:\\x', deletedAt: 1700000000000, entry: '2-gone2' }
+		]
+	})
+	world.renderPanelBody()
+	const openToolbar = world.renderPanelBody().props.children[0]
+	openToolbar.props.children[openToolbar.props.children.length - 1].props.onClick() // open the trash
+	await flush()
+
+	// Per-row permanent delete asks first, then purges exactly that entry.
+	const trashView = world.renderPanelBody()
+	const purgeButton = trashView.props.children[1].props.children[0].props.children[1].props.children[1]
+	assert.equal(purgeButton.props.children, 'trash.purge')
+	purgeButton.props.onClick()
+	await flush()
+	const oneConfirm = world.renderPanelBody().props.children[2]
+	assert.ok(oneConfirm !== null, 'the purge asks for confirmation')
+	assert.match(String(oneConfirm.props.children[0].props.children), /trash\.purgeOneConfirm/u)
+	assert.match(String(oneConfirm.props.children[0].props.children), /Gone/u, 'the confirmation names the conversation')
+	confirmButtons(world.renderPanelBody())[0].props.onClick()
+	for (let tick = 0; tick < 5; tick += 1) await flush()
+	assert.deepEqual(world.sessions.calls.purged, ['gone'], 'only the confirmed entry is purged')
+	assert.equal(world.sessions.calls.purgeRequests, 1)
+
+	// The empty-trash button in the trash toolbar purges everything.
+	const trashToolbar = world.renderPanelBody().props.children[0]
+	const emptyButton = trashToolbar.props.children[1]
+	assert.equal(emptyButton.props.children, 'trash.purgeAll')
+	emptyButton.props.onClick()
+	await flush()
+	const allConfirm = world.renderPanelBody().props.children[2]
+	assert.match(String(allConfirm.props.children[0].props.children), /trash\.purgeAllConfirm/u)
+	confirmButtons(world.renderPanelBody())[0].props.onClick()
+	for (let tick = 0; tick < 5; tick += 1) await flush()
+	assert.equal(world.sessions.calls.purged.at(-1), 'all', 'the whole trash is purged')
+	world.sessions.restoreFetch()
 })
 
 test('the panel heads every workspace group and selects one with a single click', () => {
@@ -1073,10 +1145,14 @@ test('delete asks for confirmation, then re-pulls the list so the row leaves', a
 	const confirmPanel = armed.props.children[2]
 	assert.ok(confirmPanel !== null, 'the confirmation panel appears')
 	assert.match(confirmPanel.props.children[0].props.children, /confirm\.delete/u)
+	const listed = confirmPanel.props.children[1]
+	assert.ok(listed !== null && listed !== undefined, 'the confirmation lists the selected conversations')
+	assert.match(String(listed.props.children[0].props.children), /Alpha/u)
 	assert.deepEqual(world.sessions.calls.deleted, [], 'nothing is deleted before confirmation')
 
 	// Confirming starts the deletion (the batch runs asynchronously).
-	confirmPanel.props.children[1].props.children[0].props.onClick()
+	assert.deepEqual(confirmButtons(armed)[0].props.children, 'confirm.yes', 'the strip offers the confirm button')
+	confirmButtons(armed)[0].props.onClick()
 	assert.deepEqual(world.sessions.calls.deleted, ['a'])
 	await flush()
 	assert.equal(world.sessions.calls.refreshed, 1, 'the deleted row must leave the list without a reload')
@@ -1094,7 +1170,7 @@ test('a running conversation is refused locally, by title, and never reaches the
 	world.renderPanelBody()
 	world.react.setterOf('MultiSelectPanel', 2)(new Set(['busy', 'idle']))
 	world.renderPanelBody().props.children[3].props.children[0].props.onClick() // arm the confirmation
-	world.renderPanelBody().props.children[2].props.children[1].props.children[0].props.onClick()
+	confirmButtons(world.renderPanelBody())[0].props.onClick()
 	for (let tick = 0; tick < 6; tick += 1) await flush()
 
 	assert.deepEqual(world.sessions.calls.deleted, ['idle'], 'a running conversation is not sent')
@@ -1113,7 +1189,7 @@ test('a deleted conversation that DSH still holds open says when its row leaves'
 	world.renderPanelBody()
 	world.react.setterOf('MultiSelectPanel', 2)(new Set(['opened']))
 	world.renderPanelBody().props.children[3].props.children[0].props.onClick()
-	world.renderPanelBody().props.children[2].props.children[1].props.children[0].props.onClick()
+	confirmButtons(world.renderPanelBody())[0].props.onClick()
 	for (let tick = 0; tick < 6; tick += 1) await flush()
 
 	assert.deepEqual(world.sessions.calls.deleted, ['opened'])
@@ -1138,8 +1214,7 @@ test('a selection larger than one route batch travels as sequential requests', a
 	world.renderPanelBody()
 	world.react.setterOf('MultiSelectPanel', 2)(new Set(items.map((item) => item.sessionId)))
 	world.renderPanelBody().props.children[3].props.children[0].props.onClick() // arm the confirmation
-	const confirm = world.renderPanelBody().props.children[2]
-	confirm.props.children[1].props.children[0].props.onClick()
+	confirmButtons(world.renderPanelBody())[0].props.onClick()
 	for (let tick = 0; tick < 10; tick += 1) await flush()
 	assert.equal(world.sessions.calls.deleted.length, 250, 'every id was sent')
 	assert.equal(world.sessions.calls.deleteRequests, 2, '250 ids travel as 200 + 50')

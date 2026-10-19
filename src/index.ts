@@ -7,8 +7,8 @@
  * `lib/types/index.d.ts`, and `package.json` never compiles this file. Keep
  * the two files in sync when editing either.
  *
- * See lib/index.js for the full rationale: the Host-half delete/restore/trash
- * routes, the GET-only constraint, the two id spellings, the live-session
+ * See lib/index.js for the full rationale: the Host-half delete/restore/trash/
+ * purge routes, the GET-only constraint, the two id spellings, the live-session
  * handling, and the trash layout.
  */
 /**
@@ -580,6 +580,27 @@ async function handleDelete(ctx, req, res, url) {
 }
 
 /**
+ * Permanently remove one trashed session (the trash's own delete).
+ *
+ * The entry is located through the same listing the panel shows, so a purge can
+ * only ever remove something that is actually in this plugin's trash — never a
+ * live session, and never a path outside the trash root.
+ *
+ * @param id - a validated session id.
+ * @returns a per-id outcome, never throws.
+ */
+async function purgeOne(id) {
+  try {
+    const entry = (await listTrashEntries()).find((candidate) => candidate.id === id)
+    if (entry === undefined) return { id, ok: false, purged: false, reason: '回收站中没有该会话' }
+    await rm(join(trashRoot(), entry.entry), { recursive: true, force: true, maxRetries: 5, retryDelay: 120 })
+    return { id, ok: true, purged: true }
+  } catch (error) {
+    return { id, ok: false, purged: false, reason: error instanceof Error ? error.message : String(error) }
+  }
+}
+
+/**
  * Handle `GET /session-multiselect/trash`: the restorable deletions.
  */
 async function handleTrash(req, res) {
@@ -622,6 +643,40 @@ async function handleRestore(ctx, req, res, url) {
 }
 
 /**
+ * Handle `GET /session-multiselect/purge` — permanently drop trashed sessions.
+ *
+ * `?ids=…` purges just those entries; `?all=1` empties the trash (the panel's
+ * "clear trash" button). This is the only irreversible operation in the plugin,
+ * so the panel confirms it, and the route only ever touches entries that are in
+ * `$DSH_HOME/trash/session-multiselect/` — never a live session.
+ */
+async function handlePurge(req, res, url) {
+  if (req.method !== 'GET') {
+    sendJson(res, 405, { ok: false, error: 'method not allowed' })
+    return
+  }
+  if (isCrossSite(req)) {
+    sendJson(res, 403, { ok: false, error: 'cross-site request refused' })
+    return
+  }
+  if (url.searchParams.get('all') === '1') {
+    const results = []
+    for (const entry of await listTrashEntries()) results.push(await purgeOne(entry.id))
+    const purged = results.filter((entry) => entry.purged === true).length
+    sendJson(res, 200, { ok: true, all: true, purged, results })
+    return
+  }
+  const ids = parseIds(res, req, url)
+  if (ids === null) return
+
+  const results = []
+  for (const id of ids) results.push(await purgeOne(id))
+  const purged = results.filter((entry) => entry.purged === true).length
+  const failed = results.filter((entry) => entry.ok !== true)
+  sendJson(res, 200, { ok: failed.length === 0, purged, results })
+}
+
+/**
  * Mount the host half: register the delete route for the lifetime of the fiber.
  *
  * @param ctx - host plugin context (Cordis).
@@ -637,6 +692,7 @@ export function apply(ctx) {
           if (url.pathname === `${ROUTE_PREFIX}/delete`) return handleDelete(ctx, req, res, url)
           if (url.pathname === `${ROUTE_PREFIX}/trash`) return handleTrash(req, res)
           if (url.pathname === `${ROUTE_PREFIX}/restore`) return handleRestore(ctx, req, res, url)
+          if (url.pathname === `${ROUTE_PREFIX}/purge`) return handlePurge(req, res, url)
           sendJson(res, 404, { ok: false, error: 'not found' })
         },
       }),
