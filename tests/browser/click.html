@@ -258,8 +258,20 @@ window.__smokeDeleted = [];
 // let this fall through to the static server would see a 404 and the panel would
 // (correctly) report "the delete route is not loaded".
 window.__smokeDeleteUrls = [];
+window.__smokeProbeUrls = [];
 window.fetch = async (input) => {
   const url = new URL(String(input), window.location.origin);
+  // The panel's read-only probe (dry=1) asks which rows the host still holds
+  // open. It must not be recorded as a delete, or the smoke assertions about
+  // "nothing deleted before confirmation" would fire on the probe.
+  if (url.searchParams.get('dry') === '1') {
+    window.__smokeProbeUrls.push(`${url.pathname}?${url.searchParams.toString()}`);
+    const probeIds = url.searchParams.getAll('ids');
+    return new Response(JSON.stringify({ ok: true, dry: true, results: probeIds.map((id) => ({ id, live: false, present: true })) }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' }
+    });
+  }
   window.__smokeDeleteUrls.push(`${url.pathname}?${url.searchParams.toString()}`);
   if (url.pathname !== '/session-multiselect/delete') {
     return new Response(JSON.stringify({ ok: false, error: 'not found' }), { status: 404 });

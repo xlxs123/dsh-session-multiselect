@@ -275,8 +275,8 @@ function makeCtx({ sessions, workspaces }) {
  * `{ ids, byId, 鈥?}` one (what the workspace and other clients read) or the
  * flattened `{ items, 鈥?}` projection. Both must list sessions.
  */
-function makeSessions({ items = [], records = {}, onCreate = () => 'new-session', shape = 'normalized', trashEntries = [], openOnDelete = [] } = {}) {
-	const calls = { deleted: [], forked: [], created: [], prompted: [], opened: [], refreshed: 0, deleteRequests: 0, trashRequests: 0, restored: [], purged: [], purgeRequests: 0 }
+function makeSessions({ items = [], records = {}, onCreate = () => 'new-session', shape = 'normalized', trashEntries = [], openOnDelete = [], liveIds = [] } = {}) {
+	const calls = { deleted: [], forked: [], created: [], prompted: [], opened: [], refreshed: 0, deleteRequests: 0, trashRequests: 0, restored: [], purged: [], purgeRequests: 0, probes: [] }
 	/** Set by the fetch stub below; restores the real `fetch` for this world. */
 	let restoreFetch = () => {}
 	let summaries = [...items]
@@ -317,6 +317,19 @@ function makeSessions({ items = [], records = {}, onCreate = () => 'new-session'
 	const realFetch = globalThis.fetch
 	globalThis.fetch = async (input, init = {}) => {
 		const url = typeof input === 'string' ? input : String(input?.url ?? input)
+		// The delete route's read-only probe: the panel asks before deleting which
+		// selected conversations the host still holds open.
+		if (url.includes('/session-multiselect/delete') && new URL(url, 'http://dsh.internal').searchParams.get('dry') === '1') {
+			const probeIds = [...new URL(url, 'http://dsh.internal').searchParams.getAll('ids')]
+			calls.probes.push(...probeIds)
+			return {
+				ok: true,
+				status: 200,
+				async json() {
+					return { ok: true, dry: true, results: probeIds.map((id) => ({ id, live: liveIds.includes(id), present: true })) }
+				}
+			}
+		}
 		// The trash listing and the restore call, mirroring the host half.
 		if (url.includes('/session-multiselect/trash')) {
 			calls.trashRequests += 1
@@ -479,12 +492,12 @@ function makeWorkspaces({ pinned = [], archived = [] } = {}) {
 const flush = () => new Promise((resolve) => { setImmediate(resolve) })
 
 /** Mount the plugin and return everything a test needs to drive it. */
-function mount({ items = [], records, onCreate, shape, workspaces, trashEntries, openOnDelete } = {}) {
+function mount({ items = [], records, onCreate, shape, workspaces, trashEntries, openOnDelete, liveIds } = {}) {
 	const bundle = loadBundle()
 	const primitives = makePrimitives([])
 	const react = makeReact()
 	const { exports } = bundle.instantiate(primitives, react)
-	const sessions = makeSessions({ items, records, onCreate, shape, trashEntries, openOnDelete })
+	const sessions = makeSessions({ items, records, onCreate, shape, trashEntries, openOnDelete, liveIds })
 	const { ctx, registrations, dictionaries, effects } = makeCtx({ sessions, workspaces })
 	exports.apply(ctx)
 	const registration = registrations[0]
@@ -547,7 +560,9 @@ function mount({ items = [], records, onCreate, shape, workspaces, trashEntries,
 		renderEntry,
 		panelElementOf,
 		openAndRender,
-		renderPanelBody
+		renderPanelBody,
+		/** Run the effect callbacks the component body queued (the stand-in never commits). */
+		runEffects: () => { for (const fn of react.effects.splice(0)) fn() }
 	}
 }
 
@@ -806,6 +821,15 @@ function toolbarButton(toolbar, label) {
 	const button = toolbar.props.children.find((child) => child !== null && child !== undefined && child.props !== undefined && child.props.children === label)
 	assert.ok(button !== undefined, `the toolbar must offer "${label}"`)
 	return button
+}
+
+/** Concatenate the text a rendered subtree would show. */
+function treeText(node) {
+	if (node === null || node === undefined || typeof node === 'boolean') return ''
+	if (typeof node === 'string' || typeof node === 'number') return String(node)
+	if (Array.isArray(node)) return node.map(treeText).join('')
+	if (typeof node === 'object' && node.props !== undefined) return treeText(node.props.children)
+	return ''
 }
 
 function listRows(body) {
@@ -1070,6 +1094,41 @@ test('trash rows can be selected and restored or purged as a batch', async () =>
 	confirmButtons(view)[0].props.onClick()
 	for (let tick = 0; tick < 6; tick += 1) await flush()
 	assert.deepEqual(world.sessions.calls.purged, ['gone', 'gone2'], 'both checked entries are purged')
+	world.sessions.restoreFetch()
+})
+
+test('the panel marks a row the host still holds open', async () => {
+	const world = mount({
+		items: [
+			{ sessionId: 'a', title: 'Alpha', updatedAt: 30 },
+			{ sessionId: 'b', title: 'Beta', updatedAt: 20 }
+		],
+		liveIds: ['a']
+	})
+	world.renderPanelBody()
+	world.runEffects()
+	for (let tick = 0; tick < 4; tick += 1) await flush()
+	const rendered = world.renderPanelBody()
+	assert.match(treeText(listRows(rendered)[0].props.children[1]), /row\.open/u, 'the open row carries the badge')
+	assert.doesNotMatch(treeText(listRows(rendered)[1].props.children[1]), /row\.open/u)
+	world.sessions.restoreFetch()
+})
+
+test('the delete confirmation pre-checks running and open conversations', async () => {
+	const world = mount({
+		items: [
+			{ sessionId: 'busy', title: 'Busy', updatedAt: 30, running: true },
+			{ sessionId: 'open', title: 'Open', updatedAt: 20 }
+		],
+		liveIds: ['busy', 'open']
+	})
+	world.renderPanelBody()
+	world.react.setterOf('MultiSelectPanel', 2)(new Set(['busy', 'open']))
+	world.renderPanelBody().props.children[3].props.children[0].props.onClick() // arm the delete
+	for (let tick = 0; tick < 4; tick += 1) await flush()
+	const confirmText = treeText(world.renderPanelBody().props.children[2])
+	assert.match(confirmText, /confirm\.deleteRunning\{"n":"1"\}/u, 'a running conversation is called out')
+	assert.match(confirmText, /confirm\.deleteOpen\{"n":"1"\}/u, 'an idle-but-open conversation is called out')
 	world.sessions.restoreFetch()
 })
 

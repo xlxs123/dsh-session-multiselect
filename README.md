@@ -292,10 +292,10 @@ dsh plugin --profile desktop list    # 例：新版桌面应用用的是 desktop
 lib/index.js      Node half：会话删除路由（GET /session-multiselect/delete）
 lib/client.js     浏览器 bundle：选择模型、批量动作、头部注入与面板（window.__ModuleLoader__ 契约）
 src/index.ts      Node half 源码
-tests/            83 个测试：纯逻辑单测 + 以假 Cordis 上下文挂载真实 bundle + 头部注入与点击（含 DOM 桩）
+tests/            85 个测试：纯逻辑单测 + 以假 Cordis 上下文挂载真实 bundle + 头部注入与点击（含 DOM 桩）
                   + 删除路由对着临时 DSH_HOME 做真实文件系统验证（含子智能体会话的裸 UUID id、
                     打开中的会话被拒绝、dry 探针、跨站拒绝、批量上限）
-                  + 回收站：删除移入 trash、列表/恢复往返、目标冲突拒绝、7 天过期清理、永久删除与清空、多选批量恢复/批量删除
+                  + 回收站：删除移入 trash、列表/恢复往返、目标冲突拒绝、7 天过期清理、永久删除与清空、多选批量恢复/批量删除\n                  + 打开状态：行徽章「打开中」、删除确认前的 dry 预检（运行中/打开中逐类提示）
                   + 面板隐藏子智能体会话、删除后重拉列表、大批量自动分批、回收站视图与恢复；footer 入口避开 slot 渲染器保留键
                   + 对着本机安装的 primitives 真实导出清单做兼容性验证
 tests/browser/    真实浏览器冒烟测试：真 React 18 + 无头 Chromium + 复制自工作区插件的头部与行 CSS
@@ -303,7 +303,7 @@ tests/browser/    真实浏览器冒烟测试：真 React 18 + 无头 Chromium +
 
 ```sh
 npm install                            # 只装 devDependencies（react/react-dom/ws），供测试当 React/WebSocket 源
-npm test                               # = node --test  （83 个测试，约 1.7 秒）
+npm test                               # = node --test  （85 个测试，约 1.5 秒）
 npm run test:browser                   # 真实浏览器冒烟：需要 Chrome/Edge（自动探测路径）
 npm run diag                           # 从桌面应用的 Session Storage 里读出诊断环
 
@@ -373,6 +373,8 @@ Node 只要 20+：CDP 客户端优先用 Node 自带的 `WebSocket`（v22 起才
   `$DSH_HOME/trash/session-multiselect/<时间戳>-<会话id>/`，保留 7 天后自动清理。面板工具栏的
   「回收站」可以查看并恢复（恢复到删除时所在的工作区；若目标位置已有同名会话则拒绝覆盖）。
   想彻底不留痕，仍可手动清空该目录。
+  - **删除前预检**：删除确认框里会**先做一次只读预检**（`dry=1`）：正在运行的、以及仍被 DSH 打开的对话分别提示数量；
+  面板行也会给这类对话打「打开中 / 运行中」徽章，删之前就能看到。
 - **打开中的对话**：Host 同时用「磁盘目录」和「内存会话库」表示一个会话，只删目录会让内存里的行
   在下一次刷新时回来——表现就是「有时删得掉有时删不掉」。0.5.1 起分两种：
   **正在运行**的对话在客户端就被拦下（原因：文件正在写，插件无法卸载），

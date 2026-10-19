@@ -1,6 +1,6 @@
 {
   "name": "dsh-session-multiselect",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "DSH web plugin: a searchable, workspace-grouped multi-select panel over conversations — then batch delete, archive or pin.",
   "type": "module",
   "license": "MIT",
