@@ -802,6 +802,12 @@ function listChildren(body) {
 	return Array.isArray(children) ? children : []
 }
 
+function toolbarButton(toolbar, label) {
+	const button = toolbar.props.children.find((child) => child !== null && child !== undefined && child.props !== undefined && child.props.children === label)
+	assert.ok(button !== undefined, `the toolbar must offer "${label}"`)
+	return button
+}
+
 function listRows(body) {
 	return listChildren(body).filter((node) => node.props.className === 'dsh-msel-row')
 }
@@ -944,11 +950,11 @@ test('the restore view lists trashed conversations and puts one back', async () 
 	assert.equal(trashView.props.children[0].props.children[0].props.children, 'trash.title', 'the toolbar switches to the trash')
 	const rows = trashView.props.children[1].props.children
 	assert.equal(rows.length, 1)
-	assert.equal(rows[0].props.className, 'dsh-msel-trashRow')
+	assert.ok(rows[0].props.className.includes('dsh-msel-trashRow'), 'that row is a trash entry')
 	// Two lines: title on its own line (full width), workspace + deleted time under
 	// it. The old single-line layout collapsed the title to zero width whenever the
 	// encoded workspace name was long, which it always is.
-	const main = rows[0].props.children[0]
+	const main = rows[0].props.children[1]
 	assert.equal(main.props.className, 'dsh-msel-trashMain')
 	assert.equal(main.props.children[0].props.className, 'dsh-msel-trashTitle')
 	assert.equal(main.props.children[0].props.children, 'Gone', 'the captured title is shown')
@@ -958,7 +964,7 @@ test('the restore view lists trashed conversations and puts one back', async () 
 	assert.match(String(sub.props.children[1].props.children), /trash\.deletedAt/u)
 	assert.equal(sub.props.children[2].props.className, 'dsh-msel-trashRemaining', 'the remaining days are shown')
 	assert.match(String(sub.props.children[2].props.children), /trash\.remaining/u)
-	const trashActions = rows[0].props.children[1]
+	const trashActions = rows[0].props.children[2]
 	assert.equal(trashActions.props.className, 'dsh-msel-trashAction')
 	const restoreButton = trashActions.props.children[0]
 	assert.equal(restoreButton.props.children, 'trash.restore')
@@ -973,7 +979,7 @@ test('the restore view lists trashed conversations and puts one back', async () 
 	assert.match(String(status.props.children), /trash\.restored/u)
 
 	// Back to the conversation list: the session row is there again.
-	trashView.props.children[0].props.children[2].props.onClick()
+	toolbarButton(trashView.props.children[0], 'trash.back').props.onClick()
 	const back = world.renderPanelBody()
 	const backToolbar = back.props.children[0]
 	assert.equal(backToolbar.props.children[backToolbar.props.children.length - 1].props.children, 'trash.open', 'the toolbar offers the trash again')
@@ -995,7 +1001,7 @@ test('the trash can permanently delete one entry and be emptied in one go', asyn
 
 	// Per-row permanent delete asks first, then purges exactly that entry.
 	const trashView = world.renderPanelBody()
-	const purgeButton = trashView.props.children[1].props.children[0].props.children[1].props.children[1]
+	const purgeButton = trashView.props.children[1].props.children[0].props.children[2].props.children[1]
 	assert.equal(purgeButton.props.children, 'trash.purge')
 	purgeButton.props.onClick()
 	await flush()
@@ -1010,7 +1016,7 @@ test('the trash can permanently delete one entry and be emptied in one go', asyn
 
 	// The empty-trash button in the trash toolbar purges everything.
 	const trashToolbar = world.renderPanelBody().props.children[0]
-	const emptyButton = trashToolbar.props.children[1]
+	const emptyButton = toolbarButton(trashToolbar, 'trash.purgeAll')
 	assert.equal(emptyButton.props.children, 'trash.purgeAll')
 	emptyButton.props.onClick()
 	await flush()
@@ -1019,6 +1025,51 @@ test('the trash can permanently delete one entry and be emptied in one go', asyn
 	confirmButtons(world.renderPanelBody())[0].props.onClick()
 	for (let tick = 0; tick < 5; tick += 1) await flush()
 	assert.equal(world.sessions.calls.purged.at(-1), 'all', 'the whole trash is purged')
+	world.sessions.restoreFetch()
+})
+
+test('trash rows can be selected and restored or purged as a batch', async () => {
+	const world = mount({
+		items: [{ sessionId: 'a', title: 'Alpha', updatedAt: 30 }],
+		trashEntries: [
+			{ id: 'gone', title: 'Gone', workspace: 'D:\\x', deletedAt: 1700000000000, entry: '1-gone' },
+			{ id: 'gone2', title: 'Gone2', workspace: 'D:\\y', deletedAt: 1700000000000, entry: '2-gone2' }
+		]
+	})
+	world.renderPanelBody()
+	toolbarButton(world.renderPanelBody().props.children[0], 'trash.open').props.onClick()
+	await flush()
+
+	// Clicking a trash row checks it; the toolbar count follows.
+	let view = world.renderPanelBody()
+	const rows = view.props.children[1].props.children
+	assert.equal(rows.length, 2)
+	assert.equal(rows[0].props['aria-selected'], false)
+	rows[0].props.onClick()
+	view = world.renderPanelBody()
+	assert.deepEqual(view.props.children[1].props.children.map((row) => row.props['aria-selected']), [true, false])
+	assert.match(String(view.props.children[0].props.children[2].props.children), /"n":1/u, 'the selected count updates')
+
+	// The batch row offers restore/purge and restore sends exactly the checked ids.
+	const actions = view.props.children[3].props.children
+	assert.equal(actions[0].props.children, 'trash.restoreSelected')
+	assert.equal(actions[1].props.children, 'trash.purgeSelected')
+	actions[0].props.onClick()
+	for (let tick = 0; tick < 6; tick += 1) await flush()
+	assert.deepEqual(world.sessions.calls.restored, ['gone'], 'only the checked entry is restored')
+	assert.equal(world.sessions.calls.refreshed, 1, 'the session list is re-pulled after a batch restore')
+
+	// Select all, then purge the whole selection behind one confirmation.
+	view = world.renderPanelBody()
+	toolbarButton(view.props.children[0], 'all.select').props.onClick()
+	view = world.renderPanelBody()
+	assert.equal(view.props.children[1].props.children.filter((row) => row.props['aria-selected'] === true).length, 2)
+	view.props.children[3].props.children[1].props.onClick()
+	view = world.renderPanelBody()
+	assert.match(String(view.props.children[2].props.children[0].props.children), /trash\.purgeBatchConfirm/u)
+	confirmButtons(view)[0].props.onClick()
+	for (let tick = 0; tick < 6; tick += 1) await flush()
+	assert.deepEqual(world.sessions.calls.purged, ['gone', 'gone2'], 'both checked entries are purged')
 	world.sessions.restoreFetch()
 })
 
