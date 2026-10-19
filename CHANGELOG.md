@@ -3,6 +3,12 @@
 版本号与 [GitHub Releases](https://github.com/xlxs123/dsh-session-multiselect/releases) 同步。
 推送 `v*` tag 时由 `.github/workflows/release.yml` 校验版本、跑测试、并发布带版本无关 tarball 的 Release。
 
+## 0.10.2
+
+- 删除相关文案与「软删除」对齐：确认删除的按钮改为「确认删除 / Delete」；说明文字从
+  「永久删除…无法撤销」改为「将删除 N 个对话（移入回收站，7 天内可恢复）」；回收站的
+  永久删除确认仍使用「永久删除 / Delete permanently」。
+- 无行为变化，仅为文案修正（宣传视频录制时发现）。
 ## 0.10.1
 
 - 修复 CI 环境差异导致的测试失败（仅测试代码，无行为变化）：Node 20 没有全局 `navigator`，
