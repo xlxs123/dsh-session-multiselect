@@ -145,6 +145,14 @@ test('markStatusText names what really happened, partial failures included', () 
 	assert.match(partial.text, /abcdefgh: session is active/u)
 })
 
+test('decodeWorkspaceDir turns the encoded folder name into a readable path', () => {
+	assert.equal(helpers.decodeWorkspaceDir('--G-chat-dsh--'), 'G:\\chat\\dsh')
+	assert.equal(helpers.decodeWorkspaceDir('--G-create~0020plugin-dsh--'), 'G:\\create plugin\\dsh')
+	assert.equal(helpers.decodeWorkspaceDir('--D-other--'), 'D:\\other')
+	assert.equal(helpers.decodeWorkspaceDir(''), '')
+	assert.equal(helpers.decodeWorkspaceDir(undefined), '')
+})
+
 test('failureList names each id once, short, with its reason', () => {
 	assert.equal(helpers.failureList([{ id: '0123456789', reason: 'boom' }, { id: 'ffffffffff', reason: 'bang' }]),
 		'• 01234567: boom\n• ffffffff: bang')

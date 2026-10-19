@@ -289,7 +289,7 @@ dsh plugin --profile desktop list    # 例：新版桌面应用用的是 desktop
 lib/index.js      Node half：会话删除路由（GET /session-multiselect/delete）
 lib/client.js     浏览器 bundle：选择模型、批量动作、头部注入与面板（window.__ModuleLoader__ 契约）
 src/index.ts      Node half 源码
-tests/            78 个测试：纯逻辑单测 + 以假 Cordis 上下文挂载真实 bundle + 头部注入与点击（含 DOM 桩）
+tests/            79 个测试：纯逻辑单测 + 以假 Cordis 上下文挂载真实 bundle + 头部注入与点击（含 DOM 桩）
                   + 删除路由对着临时 DSH_HOME 做真实文件系统验证（含子智能体会话的裸 UUID id、
                     打开中的会话被拒绝、dry 探针、跨站拒绝、批量上限）
                   + 回收站：删除移入 trash、列表/恢复往返、目标冲突拒绝、7 天过期清理
@@ -300,7 +300,7 @@ tests/browser/    真实浏览器冒烟测试：真 React 18 + 无头 Chromium +
 
 ```sh
 npm install                            # 只装 devDependencies（react/react-dom/ws），供测试当 React/WebSocket 源
-npm test                               # = node --test  （78 个测试，约 1.3 秒）
+npm test                               # = node --test  （79 个测试，约 1.4 秒）
 npm run test:browser                   # 真实浏览器冒烟：需要 Chrome/Edge（自动探测路径）
 npm run diag                           # 从桌面应用的 Session Storage 里读出诊断环
 

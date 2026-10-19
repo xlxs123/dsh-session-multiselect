@@ -920,8 +920,18 @@ test('the restore view lists trashed conversations and puts one back', async () 
 	const rows = trashView.props.children[1].props.children
 	assert.equal(rows.length, 1)
 	assert.equal(rows[0].props.className, 'dsh-msel-trashRow')
-	assert.equal(rows[0].props.children[0].props.children, 'Gone', 'the captured title is shown')
-	const restoreButton = rows[0].props.children[3].props.children
+	// Two lines: title on its own line (full width), workspace + deleted time under
+	// it. The old single-line layout collapsed the title to zero width whenever the
+	// encoded workspace name was long, which it always is.
+	const main = rows[0].props.children[0]
+	assert.equal(main.props.className, 'dsh-msel-trashMain')
+	assert.equal(main.props.children[0].props.className, 'dsh-msel-trashTitle')
+	assert.equal(main.props.children[0].props.children, 'Gone', 'the captured title is shown')
+	const sub = main.props.children[1]
+	assert.equal(sub.props.className, 'dsh-msel-trashSub')
+	assert.equal(sub.props.children[1].props.className, 'dsh-msel-trashWhen')
+	assert.match(String(sub.props.children[1].props.children), /trash\.deletedAt/u)
+	const restoreButton = rows[0].props.children[1].props.children
 	assert.equal(restoreButton.props.children, 'trash.restore')
 
 	restoreButton.props.onClick()

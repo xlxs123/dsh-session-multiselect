@@ -3,6 +3,14 @@
 版本号与 [GitHub Releases](https://github.com/xlxs123/dsh-session-multiselect/releases) 同步。
 推送 `v*` tag 时由 `.github/workflows/release.yml` 校验版本、跑测试、并发布带版本无关 tarball 的 Release。
 
+## 0.5.2
+
+- 回收站每行改为**两行布局**：标题独占一行拿回全部宽度，工作区路径与删除时间在下一行。
+  以前标题和编码后的工作区挤在同一行，长工作区把标题压成 0 宽——截图里「名称看不全」就是这个：
+  那一行显示的其实是 `--G-chat-dsh--`，标题「问候」被挤没了。
+- 工作区目录名解码为可读路径（`--G-create~0020plugin-dsh--` → `G:\create plugin-dsh`），
+  过长时保留尾部（项目名），悬停显示完整路径。
+- 新增 `decodeWorkspaceDir` 纯函数；测试 79 个；诊断 BUILD 28。
 ## 0.5.1
 
 - 修复「打开中的对话删不掉」：区分**正在运行**与**打开过但空闲**——前者在客户端就拦下并写明原因
