@@ -3,6 +3,17 @@
 版本号与 [GitHub Releases](https://github.com/xlxs123/dsh-session-multiselect/releases) 同步。
 推送 `v*` tag 时由 `.github/workflows/release.yml` 校验版本、跑测试、并发布带版本无关 tarball 的 Release。
 
+## 0.10.0
+
+- **日期分组**：分组切换为「按工作区 / 按日期 / 不分组」，日期分为今天 / 昨天 / 最近 7 天 / 更早；
+  选择随偏好持久化（旧版 `groupByWorkspace` 快照仍能读）。
+- **快捷筛选**：全部 / 运行中 / 置顶，与「显示归档」开关叠加；筛选和分组互不影响。
+- **复制清单**：把当前可见对话复制为 Markdown 表格（标题 / 工作区 / 更新时间 / 状态标签），
+  管道符与换行会转义；成功/失败都有状态行提示。
+- **无障碍**：状态行加 `aria-live="polite"`，列表在批量操作期间标记 `aria-busy`。
+- **测试与工程**：真实浏览器冒烟覆盖回收站视图（行数 / 标题 / 工作区筛选 / 键盘勾选）；
+  CI 增加 Node 20/22 矩阵；补全 `lib/types/index.d.ts` 的路由响应类型。
+- 测试 92 个；诊断 BUILD 33。
 ## 0.9.0
 
 - **键盘导航**：面板内 ↑/↓ 移动当前行、Home/End 跳首尾、空格/回车勾选、Ctrl/Cmd+A 全选、

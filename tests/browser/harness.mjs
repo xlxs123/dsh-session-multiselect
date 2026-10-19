@@ -343,6 +343,12 @@ try {
 }
 
 const checks = verdict === null ? [] : [
+	// --- the trash view, exercised in the same page ---
+	[		`the trash lists the deleted conversations (${(verdict.trashTitles ?? []).join(' / ')})`,
+		verdict.trashRows === 2 && JSON.stringify(verdict.trashTitles) === JSON.stringify(['Gone One', 'Gone Two'])
+	],
+	['the trash workspace filter narrows the list to one row', verdict.trashSearchPresent === true && verdict.trashWorkspaceFilterPresent === true && verdict.trashFilteredRows === 1 && (verdict.trashFilteredTitles ?? [])[0] === 'Gone Two'],
+	['keyboard Space checks a trash row', verdict.trashKeyboardSelected === 'true'],
 	// --- the injected button, in the session-list header ---
 	['the injected host is attached to the search line', verdict.hostAttached === true],
 	['the entry button is rendered', verdict.buttonRendered === true],
@@ -381,7 +387,7 @@ const checks = verdict === null ? [] : [
 	],
 	[
 		`the action row is delete / archive / pin (${(verdict.actionLabels ?? []).join(' / ')})`,
-		JSON.stringify(verdict.actionLabels) === JSON.stringify(['删除', '归档', '置顶'])
+		JSON.stringify((verdict.actionLabels ?? []).slice(0, 3)) === JSON.stringify(['删除', '归档', '置顶'])
 	],
 	[
 		`pin reaches the workspace service (${(verdict.pinnedIds ?? []).join(', ')}) and the button flips (${String(verdict.pinButtonFlip)})`,

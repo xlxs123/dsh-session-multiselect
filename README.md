@@ -57,6 +57,9 @@ nightly**（Harness **0.2.0-rc.2**）的 Web 客户端上开发并实测（Windo
 - **打开中的对话分两种处理**：**正在运行**的对话拒绝删除（文件正在写，插件无法卸载它，状态行会说明）；
   只是被 DSH **打开过、当前空闲**的对话会照常移进回收站，状态行会提示"其中 N 个仍被打开：
   列表里的行会在重启 DSH 后消失"——文件已经安全躺在回收站，可恢复。
+- **三种分组**：按工作区 / 按日期（今天 / 昨天 / 最近 7 天 / 更早）/ 不分组，选择会记住
+- **快捷筛选**：全部 / 运行中 / 置顶（与「显示归档」开关叠加）
+- **复制清单**：把当前可见对话复制成 Markdown 表格（标题 / 工作区 / 更新时间 / 状态标签），方便贴进 issue 或交接
 - **按工作区分组**：每个工作区一个标题（**显示完整路径**，路径过长时省略号出现在左侧、保留尾部目录名），
   标题上带 `已选/总数`；点标题一次即可**整组勾选/取消**。分组顺序按该组内最新对话的时间排，
   没记录工作目录的会话单独归到最后一组。工具栏的「按工作区分组」可以关掉（关掉后回到单纯按时间排序的
@@ -295,7 +298,7 @@ dsh plugin --profile desktop list    # 例：新版桌面应用用的是 desktop
 lib/index.js      Node half：会话删除路由（GET /session-multiselect/delete）
 lib/client.js     浏览器 bundle：选择模型、批量动作、头部注入与面板（window.__ModuleLoader__ 契约）
 src/index.ts      Node half 源码
-tests/            87 个测试：纯逻辑单测 + 以假 Cordis 上下文挂载真实 bundle + 头部注入与点击（含 DOM 桩）
+tests/            92 个测试：纯逻辑单测 + 以假 Cordis 上下文挂载真实 bundle + 头部注入与点击（含 DOM 桩）
                   + 删除路由对着临时 DSH_HOME 做真实文件系统验证（含子智能体会话的裸 UUID id、
                     打开中的会话被拒绝、dry 探针、跨站拒绝、批量上限）
                   + 回收站：删除移入 trash、列表/恢复往返、目标冲突拒绝、7 天过期清理、永久删除与清空、多选批量恢复/批量删除\n                  + 打开状态：行徽章「打开中」、删除确认前的 dry 预检（运行中/打开中逐类提示）
@@ -306,7 +309,7 @@ tests/browser/    真实浏览器冒烟测试：真 React 18 + 无头 Chromium +
 
 ```sh
 npm install                            # 只装 devDependencies（react/react-dom/ws），供测试当 React/WebSocket 源
-npm test                               # = node --test  （87 个测试，约 1.5 秒）
+npm test                               # = node --test  （92 个测试，约 1.0 秒）
 npm run test:browser                   # 真实浏览器冒烟：需要 Chrome/Edge（自动探测路径）
 npm run diag                           # 从桌面应用的 Session Storage 里读出诊断环
 npm run lint                           # ESLint 10（flat config；客户端 bundle 用浏览器 globals）

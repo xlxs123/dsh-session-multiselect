@@ -164,6 +164,43 @@ test('failureList names each id once, short, with its reason', () => {
 	assert.equal(helpers.failureList(undefined), '')
 })
 
+test('groupRows dates bucket into today / last week / earlier', () => {
+	const now = Date.now()
+	const rows = [
+		{ sessionId: 'a', updatedAt: now - 1000 },
+		{ sessionId: 'b', updatedAt: now - (2 * 86400000) },
+		{ sessionId: 'c', updatedAt: now - (10 * 86400000) }
+	]
+	const groups = helpers.groupRows(rows, 'date')
+	assert.deepEqual(groups.map((group) => group.label), ['date.today', 'date.week', 'date.earlier'])
+	assert.deepEqual(groups.flatMap((group) => group.rows.map((row) => row.sessionId)), ['a', 'b', 'c'])
+	assert.equal(helpers.groupRows(rows, 'workspace')[0].kind, 'workspace')
+	assert.equal(helpers.groupRows(rows, false)[0].kind, 'none')
+})
+
+test('exportMarkdown escapes cells and lists the state tags', () => {
+	const text = helpers.exportMarkdown([
+		{ sessionId: 'session-abcdefgh-1', title: 'A | B', cwd: 'D:\\x', updatedAt: 0, pinned: true, archived: false, running: true }
+	], (key) => key)
+	assert.match(text, /\| A \\\| B \|/u, 'a pipe inside a title cannot break the table')
+	assert.match(text, /export\.pinned\/export\.running/u)
+	assert.match(text, /\| --- \| --- \| --- \| --- \|/u)
+})
+
+test('visibleRows applies the running and pinned filters', () => {
+	const snapshot = {
+		ids: ['a', 'b', 'c'],
+		byId: {
+			a: { id: 'a', displayTitle: 'A', running: true, updatedAt: 3 },
+			b: { id: 'b', displayTitle: 'B', updatedAt: 2 },
+			c: { id: 'c', displayTitle: 'C', updatedAt: 1 }
+		}
+	}
+	assert.deepEqual(helpers.visibleRows(snapshot, { pinnedIds: ['c'] }, '', false, 'running').map((row) => row.sessionId), ['a'])
+	assert.deepEqual(helpers.visibleRows(snapshot, { pinnedIds: ['c'] }, '', false, 'pinned').map((row) => row.sessionId), ['c'])
+	assert.equal(helpers.visibleRows(snapshot, {}, '', false, 'all').length, 3)
+})
+
 test('toggleSelection adds then removes and moves the range anchor', () => {
 	const first = helpers.toggleSelection(new Set(), 'a')
 	assert.deepEqual([...first.selected], ['a'])

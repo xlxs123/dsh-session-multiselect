@@ -667,7 +667,7 @@ test('apply mounts with its own dialog when the platform seeds no primitives', (
 	assert.equal(typeof store.getSnapshot, 'function')
 	assert.equal(typeof store.subscribe, 'function')
 	assert.equal(store.getSnapshot().groupByWorkspace, true, 'the fallback store seeds its defaults')
-	assert.deepEqual(Object.keys(store.getSnapshot()).sort(), ['archivedIds', 'groupByWorkspace', 'inlineProven', 'pinnedIds'])
+	assert.deepEqual(Object.keys(store.getSnapshot()).sort(), ['archivedIds', 'filter', 'groupByWorkspace', 'groupMode', 'inlineProven', 'pinnedIds'])
 })
 
 test('a renamed or missing icon falls back to its own artwork instead of failing the mount', () => {
@@ -715,7 +715,7 @@ test('store setArchived adds and removes ids, and nothing else', () => {
 	// The pin mark has no local fallback (it is either a real pin or nothing), so
 	// the plugin store holds: the fallback archive mark, the grouping preference,
 	// and the proof flag.
-	assert.deepEqual(Object.keys(store.getSnapshot()).sort(), ['archivedIds', 'groupByWorkspace', 'inlineProven', 'pinnedIds'])
+	assert.deepEqual(Object.keys(store.getSnapshot()).sort(), ['archivedIds', 'filter', 'groupByWorkspace', 'groupMode', 'inlineProven', 'pinnedIds'])
 	assert.deepEqual(store.getSnapshot().pinnedIds, [], 'pinning never writes a private mark')
 })
 
@@ -1206,6 +1206,60 @@ test('the trash can be searched and filtered by workspace', async () => {
 	assert.match(treeText(view.props.children[1]), /list\.emptyFiltered/u)
 })
 
+test('the panel can group by date and filter to running or pinned rows', () => {
+	const now = Date.now()
+	const items = [
+		{ sessionId: 'a', title: 'Today', updatedAt: now - 1000, cwd: 'D:\\alpha', running: true },
+		{ sessionId: 'b', title: 'Older', updatedAt: now - (3 * 86400000), cwd: 'D:\\beta' },
+		{ sessionId: 'c', title: 'Oldest', updatedAt: now - (30 * 86400000), cwd: 'D:\\alpha' }
+	]
+	const world = mount({ items })
+	world.face.hooks.store.actions.setGroupMode('date')
+	let body = world.renderPanelBody()
+	const headings = listGroups(body).map((group) => treeText(group))
+	assert.ok(headings.some((heading) => heading.includes('date.today')), 'today gets its own heading')
+	assert.ok(headings.some((heading) => heading.includes('date.week')), 'the older row is under last 7 days')
+	assert.ok(headings.some((heading) => heading.includes('date.earlier')), 'the oldest row is under earlier')
+	assert.equal(listRows(body).length, 3)
+
+	// Filtering keeps the list honest: running shows one, pinned shows the pinned one.
+	const filterSelect = () => world.renderPanelBody().props.children[0].props.children
+		.find((node) => node.props.className === 'dsh-msel-select' && node.props['aria-label'] === 'filter.by')
+	filterSelect().props.onChange({ target: { value: 'running' } })
+	assert.deepEqual(listRows(world.renderPanelBody()).map(rowTitle), ['Today'])
+	world.face.hooks.store.actions.setFilter('all')
+	filterSelect().props.onChange({ target: { value: 'pinned' } })
+	assert.deepEqual(listRows(world.renderPanelBody()).map(rowTitle), [])
+	world.face.hooks.store.actions.setFilter('all')
+})
+
+test('the visible list can be copied as Markdown', async () => {
+	const copied = []
+	Object.defineProperty(globalThis.navigator, 'clipboard', { value: { writeText: async (value) => { copied.push(value) } }, configurable: true })
+	try {
+		const world = mount({
+			items: [
+				{ sessionId: 'session-aaaaaaaa-1111', title: 'Alpha', updatedAt: 1700000000000, cwd: 'D:\\alpha' },
+				{ sessionId: 'session-bbbbbbbb-2222', title: 'Beta|pipe', updatedAt: 1700000000000, cwd: '' }
+			]
+		})
+		const body = world.renderPanelBody()
+		const copyButton = body.props.children[3].props.children.find((node) => node.props.children === 'export.copy')
+		assert.ok(copyButton !== undefined, 'the action row offers the copy button')
+		copyButton.props.onClick()
+		for (let tick = 0; tick < 4; tick += 1) await flush()
+		assert.equal(copied.length, 1, 'the clipboard received the table')
+		assert.match(copied[0], /\| export\.title \|/u, 'the table has a localized header')
+		assert.match(copied[0], /Alpha/u)
+		assert.match(copied[0], /Beta.*pipe/u, 'the pipe is escaped inside the cell')
+		const status = world.renderPanelBody().props.children.find((child) => child !== null && child !== undefined && child.props !== undefined && child.props['data-tone'] !== undefined)
+		assert.match(String(status.props.children), /export\.copied/u)
+		world.sessions.restoreFetch()
+	} finally {
+		delete globalThis.navigator.clipboard
+	}
+})
+
 test('the panel heads every workspace group and selects one with a single click', () => {
 	const items = [
 		{ sessionId: 'a', title: 'Alpha', updatedAt: 30, cwd: 'D:\\alpha' },
@@ -1242,10 +1296,10 @@ test('turning grouping off paints one flat recency list', () => {
 		]
 	})
 	const body = world.renderPanelBody()
-	const toggle = body.props.children[0].props.children
-		.find((node) => Array.isArray(node.props.children) && node.props.children[1] === 'option.group')
-	assert.equal(toggle.props.children[0].props.checked, true, 'grouping is the default')
-	toggle.props.children[0].props.onChange({ target: { checked: false } })
+	const groupSelect = body.props.children[0].props.children
+		.find((node) => node.props.className === 'dsh-msel-select' && node.props['aria-label'] === 'group.mode')
+	assert.equal(groupSelect.props.value, 'workspace', 'grouping by workspace is the default')
+	groupSelect.props.onChange({ target: { value: 'none' } })
 	const flat = world.renderPanelBody()
 	assert.equal(listGroups(flat).length, 0, 'no headings once grouping is off')
 	assert.deepEqual(listRows(flat).map(rowTitle), ['Alpha', 'Beta', 'Gamma'], 'and rows fall back to plain recency')
@@ -1417,7 +1471,7 @@ test('the panel offers three actions, and the last two work in both directions',
 	const body = world.renderPanelBody()
 	const actionRow = body.props.children[3]
 	assert.deepEqual(actionRow.props.children.map((button) => button.props.children),
-		['action.delete', 'action.archive', 'action.pin'], 'delete, archive, pin — nothing else')
+		['action.delete', 'action.archive', 'action.pin', 'export.copy'], 'delete, archive, pin — nothing else')
 
 	// Archiving hides the rows (the panel lists unarchived rows only), and the
 	// button flips to the reverse direction for the archived selection.
