@@ -78,7 +78,6 @@ function loadBundle() {
 		requestAnimationFrame: () => 1,
 		cancelAnimationFrame: () => {}
 	}
-	// eslint-disable-next-line no-new-func -- the bundle is browser code, not a module
 	new Function('window', 'globalThis', source)(globalThis.window, globalThis)
 	assert.ok(registration !== undefined, 'bundle did not register with __ModuleLoader__')
 	return registration

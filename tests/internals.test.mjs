@@ -29,7 +29,6 @@ function loadBundle() {
 			}
 		}
 	}
-	// eslint-disable-next-line no-new-func -- the bundle is CJS-formatted browser code
 	new Function('window', 'globalThis', source)(globalThis.window, globalThis)
 	assert.ok(registration !== undefined, 'bundle did not register with __ModuleLoader__')
 	assert.equal(registration.id, 'dsh-session-multiselect')

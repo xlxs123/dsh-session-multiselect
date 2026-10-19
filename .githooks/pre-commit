@@ -1,0 +1,12 @@
+#!/bin/sh
+# Run before every commit.
+#
+# The shipped bundles are hand-written and have no build step, so the only thing
+# standing between a typo and a broken profile is this check: lint the tree, then
+# run the file-level suite (`node --test` over the pure/testable halves). The
+# browser smoke test needs a real Chromium, so it stays in CI and stays available
+# as `npm run test:browser`.
+set -e
+cd "$(git rev-parse --show-toplevel)"
+npm run lint
+npm run test:files

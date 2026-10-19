@@ -3,6 +3,15 @@
 版本号与 [GitHub Releases](https://github.com/xlxs123/dsh-session-multiselect/releases) 同步。
 推送 `v*` tag 时由 `.github/workflows/release.yml` 校验版本、跑测试、并发布带版本无关 tarball 的 Release。
 
+## 0.9.0
+
+- **键盘导航**：面板内 ↑/↓ 移动当前行、Home/End 跳首尾、空格/回车勾选、Ctrl/Cmd+A 全选、
+  Delete 直接打开删除确认；回收站视图同样支持行间移动与空格勾选。
+- **回收站搜索与工作区筛选**：工具栏新增搜索框（匹配标题或解码后的工作区路径）与工作区下拉；
+  「全选」只作用于当前筛选结果，计数显示已选/可见数量，无匹配时显示筛选空状态。
+- **工程化**：ESLint 10（flat config，Node 与浏览器两套 globals，零警告）、Prettier（校验配置面）、
+  `.githooks/pre-commit`（lint + 文件级测试），CI 增加 lint/format 步骤。
+- 测试 87 个；诊断 BUILD 32。
 ## 0.8.0
 
 - **删除确认前预检**：点删除时先发一次只读 `dry=1` 探针，确认框分别提示「其中 N 个正在运行，不会被删除」

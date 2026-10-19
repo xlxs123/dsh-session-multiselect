@@ -319,33 +319,6 @@ function installLayout({ base = 28, hostWidth = 28, nativeGap = 4 } = {}) {
 	}
 }
 
-/**
- * Build the session list the way `dsh-client-ui-workspace` renders it.
- *
- * The header the entry button hangs on and the rows inline mode ticks live in
- * one container, and each row carries the shell's own `data-row-key` — the only
- * stable handle on a session row (class names are build-hashed).
- * @param ids - session ids, in paint order.
- */
-function makeSessionList(ids = ['a', 'b', 'c']) {
-	const root = makeElement('div', { class: 'bhn1Oq_root' })
-	const parts = makeHeader()
-	root.appendChild(parts.header)
-	const rows = ids.map((id, index) => {
-		const row = makeElement('div', { 'data-row-key': `session:${id}`, role: 'treeitem', class: 'sessionRow' })
-		row.appendChild(makeElement('span', { class: 'slot' }))
-		const title = makeElement('span', { class: 'title' })
-		title.textContent = `会话 ${String(index + 1)}`
-		row.appendChild(title)
-		// The row's own actions menu: a button that must keep working in this mode.
-		const menu = makeElement('button', { class: 'rowMenu', 'aria-label': '更多' })
-		row.appendChild(menu)
-		root.appendChild(row)
-		return { row, title, menu, id }
-	})
-	return { root, rows, parts }
-}
-
 /** Give the header stub the boxes and the second icon a real layout would. */function wireHeaderLayout(ui, layout) {
 	const action = makeElement('button', { 'aria-label': '新建会话' })
 	action.box = layout.next
@@ -370,7 +343,6 @@ function loadBundle({ reactDom, layout } = {}) {
 	// The placement code measures the live row through the window it finds.
 	if (layout !== undefined) window.getComputedStyle = (element) => layout.computedStyle(element)
 	globalThis.window = window
-	// eslint-disable-next-line no-new-func -- the bundle is CJS-formatted browser code
 	new Function('window', 'globalThis', source)(window, globalThis)
 
 	const FRAGMENT = Symbol('Fragment')
@@ -754,8 +726,6 @@ test('apply mounts an observer and tears the inline host down on dispose', () =>
 	assert.equal(doc.listeners.length, 0, 'the document triggers are removed with the plugin')
 	assert.equal(bundle.existingHost(), null, 'the injected host is removed')
 })
-
-const rowLayout = { computedStyle: () => ({ paddingInlineStart: '8px', position: 'static' }) };
 
 
 

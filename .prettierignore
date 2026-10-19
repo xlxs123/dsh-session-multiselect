@@ -1,0 +1,11 @@
+# The shipped halves and their tests are hand-formatted (tabs, long rationale
+# comments); reflowing them would bury real diffs. Prettier owns the config
+# surface instead: package.json, workflows, and the bundle patch.
+lib/
+src/
+tests/
+README.md
+CHANGELOG.md
+node_modules/
+*.tgz
+package-lock.json

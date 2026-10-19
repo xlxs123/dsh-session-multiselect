@@ -23,6 +23,10 @@ jobs:
         with:
           node-version: '20'
       - run: npm ci --no-audit --no-fund
+      - name: Lint and formatting
+        run: |
+          npm run lint
+          npm run format:check
       - name: File suites (helpers, panel mount, header injection, delete route)
         run: npm run test:files
       - name: Browser suite (real React, real layout, real click)

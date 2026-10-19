@@ -203,7 +203,6 @@ function loadBundle() {
 		observe() {}
 		disconnect() {}
 	}
-	// eslint-disable-next-line no-new-func -- the bundle is CJS-formatted browser code
 	new Function('window', 'globalThis', source)(window, globalThis)
 	return {
 		registration,
@@ -1072,7 +1071,7 @@ test('trash rows can be selected and restored or purged as a batch', async () =>
 	rows[0].props.onClick()
 	view = world.renderPanelBody()
 	assert.deepEqual(view.props.children[1].props.children.map((row) => row.props['aria-selected']), [true, false])
-	assert.match(String(view.props.children[0].props.children[2].props.children), /"n":1/u, 'the selected count updates')
+	assert.match(String(view.props.children[0].props.children[4].props.children), /"n":1/u, 'the selected count updates')
 
 	// The batch row offers restore/purge and restore sends exactly the checked ids.
 	const actions = view.props.children[3].props.children
@@ -1130,6 +1129,81 @@ test('the delete confirmation pre-checks running and open conversations', async 
 	assert.match(confirmText, /confirm\.deleteRunning\{"n":"1"\}/u, 'a running conversation is called out')
 	assert.match(confirmText, /confirm\.deleteOpen\{"n":"1"\}/u, 'an idle-but-open conversation is called out')
 	world.sessions.restoreFetch()
+})
+
+test('the panel supports keyboard select-all, toggling and row navigation', () => {
+	const world = mount({
+		items: [
+			{ sessionId: 'a', title: 'Alpha', updatedAt: 3 },
+			{ sessionId: 'b', title: 'Beta', updatedAt: 2 },
+			{ sessionId: 'c', title: 'Gamma', updatedAt: 1 }
+		]
+	})
+	const body = world.renderPanelBody()
+	// Ctrl+A on the panel root selects every visible row.
+	body.props.onKeyDown({ key: 'a', ctrlKey: true, preventDefault() {} })
+	let rows = listRows(world.renderPanelBody())
+	assert.deepEqual(rows.map((row) => row.props['data-selected']), ['true', 'true', 'true'])
+
+	// Space toggles the focused row only.
+	rows[0].props.onKeyDown({ key: ' ', preventDefault() {} })
+	rows = listRows(world.renderPanelBody())
+	assert.deepEqual(rows.map((row) => row.props['data-selected']), ['false', 'true', 'true'])
+
+	// ArrowDown moves the active row and takes the browser focus with it.
+	rows[0].props.onKeyDown({ key: 'ArrowDown', preventDefault() {} })
+	rows = listRows(world.renderPanelBody())
+	assert.deepEqual(rows.map((row) => row.props['data-active']), ['false', 'true', 'false'])
+
+	// Delete opens the confirmation for the current selection.
+	world.renderPanelBody().props.onKeyDown({ key: 'Delete', preventDefault() {} })
+	assert.ok(world.renderPanelBody().props.children[2] !== null, 'Delete arms the confirmation')
+})
+
+test('the trash can be searched and filtered by workspace', async () => {
+	const world = mount({
+		items: [{ sessionId: 'a', title: 'Alpha', updatedAt: 30 }],
+		trashEntries: [
+			{ id: 'gone', title: 'Gone', workspace: '--D-x--', deletedAt: 1700000000000, entry: '1-gone' },
+			{ id: 'gone2', title: 'Gone2', workspace: '--D-y--', deletedAt: 1700000000000, entry: '2-gone2' }
+		]
+	})
+	world.renderPanelBody()
+	toolbarButton(world.renderPanelBody().props.children[0], 'trash.open').props.onClick()
+	await flush()
+
+	// The search box narrows by title or decoded workspace path.
+	let view = world.renderPanelBody()
+	let toolbar = view.props.children[0]
+	assert.equal(toolbar.props.children[1].props.placeholder, 'trash.searchPlaceholder')
+	toolbar.props.children[1].props.onChange({ target: { value: 'gone2' } })
+	view = world.renderPanelBody()
+	assert.equal(view.props.children[1].props.children.length, 1)
+	assert.match(treeText(view.props.children[1]), /Gone2/u)
+
+	// Clearing the search restores both rows; the workspace select narrows to one.
+	view.props.children[0].props.children[1].props.onChange({ target: { value: '' } })
+	view = world.renderPanelBody()
+	assert.equal(view.props.children[1].props.children.length, 2)
+	const select = view.props.children[0].props.children[2]
+	assert.equal(select.props.className, 'dsh-msel-select')
+	assert.equal(select.props.children[0].props.children, 'trash.allWorkspaces')
+	const optionY = select.props.children.find((option) => option.props.value === '--D-y--')
+	assert.equal(optionY.props.children, 'D:\\y', 'the workspace is decoded for the filter')
+	select.props.onChange({ target: { value: '--D-y--' } })
+	view = world.renderPanelBody()
+	assert.equal(view.props.children[1].props.children.length, 1)
+	assert.match(treeText(view.props.children[1]), /Gone2/u)
+
+	// Ctrl+A selects only what the filter shows, and the count follows.
+	world.renderPanelBody().props.onKeyDown({ key: 'a', ctrlKey: true, preventDefault() {} })
+	const selectedCount = world.renderPanelBody().props.children[0].props.children[4].props.children
+	assert.match(String(selectedCount), /"n":1/u)
+
+	// A search with no match shows the filtered empty state, not the trash-empty one.
+	world.renderPanelBody().props.children[0].props.children[1].props.onChange({ target: { value: 'zzz' } })
+	view = world.renderPanelBody()
+	assert.match(treeText(view.props.children[1]), /list\.emptyFiltered/u)
 })
 
 test('the panel heads every workspace group and selects one with a single click', () => {

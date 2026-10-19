@@ -52,6 +52,7 @@ nightly**（Harness **0.2.0-rc.2**）的 Web 客户端上开发并实测（Windo
   （标题/工作区/删除时间），一键「恢复」放回原工作区。超过 7 天的条目在下次删除/查看/恢复时自动清理。
   回收站里每条还显示「还剩 N 天」，可**永久删除单条**或**清空回收站**（都会二次确认）；
   **回收站内可以多选**（点行勾选 / 全选），然后一次「恢复选中」或「永久删除选中」；
+  工具栏还有**搜索框**（按标题或解码后的工作区路径）和**工作区下拉筛选**，「全选」只作用于当前筛选结果；
   删除确认框会列出最多 3 个将被删除的对话标题，而不是只给一个数字。
 - **打开中的对话分两种处理**：**正在运行**的对话拒绝删除（文件正在写，插件无法卸载它，状态行会说明）；
   只是被 DSH **打开过、当前空闲**的对话会照常移进回收站，状态行会提示"其中 N 个仍被打开：
@@ -61,6 +62,8 @@ nightly**（Harness **0.2.0-rc.2**）的 Web 客户端上开发并实测（Windo
   没记录工作目录的会话单独归到最后一组。工具栏的「按工作区分组」可以关掉（关掉后回到单纯按时间排序的
   平铺列表），这个选择会记住
 - 全选 / 清空 / 反选
+- **键盘操作**：`↑`/`↓` 在行间移动焦点（`Home`/`End` 跳首尾），`空格`/`回车` 勾选当前行，
+  `Ctrl/Cmd+A` 全选、`Delete` 直接打开删除确认；回收站视图同样支持行间移动与空格勾选
 - 搜索：按标题、工作目录、会话 ID 过滤
 - **Shift + 点击按范围选择**（范围按**当前显示顺序**，也就是分组后的顺序）；Ctrl/Cmd + 点击追加选择
 - 已选计数实时显示；已置顶的行排在最前（和原生列表的置顶分组一致），并带「已置顶」标签
@@ -292,7 +295,7 @@ dsh plugin --profile desktop list    # 例：新版桌面应用用的是 desktop
 lib/index.js      Node half：会话删除路由（GET /session-multiselect/delete）
 lib/client.js     浏览器 bundle：选择模型、批量动作、头部注入与面板（window.__ModuleLoader__ 契约）
 src/index.ts      Node half 源码
-tests/            85 个测试：纯逻辑单测 + 以假 Cordis 上下文挂载真实 bundle + 头部注入与点击（含 DOM 桩）
+tests/            87 个测试：纯逻辑单测 + 以假 Cordis 上下文挂载真实 bundle + 头部注入与点击（含 DOM 桩）
                   + 删除路由对着临时 DSH_HOME 做真实文件系统验证（含子智能体会话的裸 UUID id、
                     打开中的会话被拒绝、dry 探针、跨站拒绝、批量上限）
                   + 回收站：删除移入 trash、列表/恢复往返、目标冲突拒绝、7 天过期清理、永久删除与清空、多选批量恢复/批量删除\n                  + 打开状态：行徽章「打开中」、删除确认前的 dry 预检（运行中/打开中逐类提示）
@@ -303,13 +306,17 @@ tests/browser/    真实浏览器冒烟测试：真 React 18 + 无头 Chromium +
 
 ```sh
 npm install                            # 只装 devDependencies（react/react-dom/ws），供测试当 React/WebSocket 源
-npm test                               # = node --test  （85 个测试，约 1.5 秒）
+npm test                               # = node --test  （87 个测试，约 1.5 秒）
 npm run test:browser                   # 真实浏览器冒烟：需要 Chrome/Edge（自动探测路径）
 npm run diag                           # 从桌面应用的 Session Storage 里读出诊断环
+npm run lint                           # ESLint 10（flat config；客户端 bundle 用浏览器 globals）
+npm run format:check                   # Prettier 只校验配置面（package.json / workflows / bundle patch）
 
 # 只读探针：某个会话是否被 Host 内存持有 / 目录是否还在（不删除任何东西）
 curl.exe "http://127.0.0.1:<端口>/session-multiselect/delete?dry=1&ids=<会话id>"
 ```
+
+提交前钩子：`npm install` 会把 `core.hooksPath` 指向 `.githooks/`，`pre-commit` 跑 `lint` + 文件级测试（浏览器冒烟留给 CI，因为它需要真实 Chromium）。
 
 发布：推 `v*` tag 即触发 `.github/workflows/release.yml`（校验 tag 与 `package.json` 版本一致、
 跑 `npm test`、发布版本无关的 `dsh-session-multiselect.tgz`）。先改版本再：

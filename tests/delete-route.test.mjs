@@ -10,7 +10,7 @@
  */
 
 import assert from 'node:assert/strict'
-import { mkdtemp, mkdir, writeFile, readFile, readdir, rm, stat } from 'node:fs/promises'
+import { mkdtemp, mkdir, writeFile, readFile, readdir, rm } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -263,7 +263,7 @@ test('refuses a browser-attested cross-site request', async () => {
 })
 
 test('refuses a batch too large for one request line', async () => {
-  const { home, ids } = await makeHome()
+  const { home } = await makeHome()
   const previous = process.env.DSH_HOME
   process.env.DSH_HOME = home
   try {

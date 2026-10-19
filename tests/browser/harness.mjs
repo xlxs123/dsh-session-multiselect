@@ -342,27 +342,6 @@ try {
 	failure = error
 }
 
-/**
- * Perceived lightness distance between a text colour and its surface, 0..1.
- *
- * Enough to catch the failure this guards: light text on a light surface. A
- * missing surface token must never fall back to a light default.
- * @param colors - `{ color, background }` as computed styles report them.
- * @returns the distance, or 0 when either colour is unreadable.
- */
-function contrast(colors) {
-	const rgb = (value) => {
-		const parts = String(value ?? '').match(/\d+(?:\.\d+)?/gu)
-		return parts === null || parts.length < 3 ? null : parts.slice(0, 3).map(Number)
-	}
-	const lightness = (triple) => (0.2126 * triple[0] + 0.7152 * triple[1] + 0.0722 * triple[2]) / 255
-	const text = rgb(colors?.color)
-	const surface = rgb(colors?.background)
-	if (text === null || surface === null) return 0
-	if (String(colors.background).includes('rgba') && Number(String(colors.background).split(',').at(-1)?.replace(')', '')) === 0) return 0
-	return Math.abs(lightness(text) - lightness(surface))
-}
-
 const checks = verdict === null ? [] : [
 	// --- the injected button, in the session-list header ---
 	['the injected host is attached to the search line', verdict.hostAttached === true],
