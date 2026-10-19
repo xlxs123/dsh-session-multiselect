@@ -270,8 +270,9 @@ dsh plugin --profile desktop list    # 例：新版桌面应用用的是 desktop
 lib/index.js      Node half：会话删除路由（GET /session-multiselect/delete）
 lib/client.js     浏览器 bundle：选择模型、批量动作、头部注入与面板（window.__ModuleLoader__ 契约）
 src/index.ts      Node half 源码
-tests/            65 个测试：纯逻辑单测 + 以假 Cordis 上下文挂载真实 bundle + 头部注入与点击（含 DOM 桩）
-                  + 删除路由对着临时 DSH_HOME 做真实文件系统验证（含子智能体会话的裸 UUID id）
+tests/            67 个测试：纯逻辑单测 + 以假 Cordis 上下文挂载真实 bundle + 头部注入与点击（含 DOM 桩）
+                  + 删除路由对着临时 DSH_HOME 做真实文件系统验证（含子智能体会话的裸 UUID id、
+                    打开中的会话被拒绝、dry 探针）
                   + 面板隐藏子智能体会话、删除后重拉列表；footer 入口避开 slot 渲染器保留键
                   + 对着本机安装的 primitives 真实导出清单做兼容性验证
 tests/browser/    真实浏览器冒烟测试：真 React 18 + 无头 Chromium + 复制自工作区插件的头部与行 CSS
@@ -279,7 +280,7 @@ tests/browser/    真实浏览器冒烟测试：真 React 18 + 无头 Chromium +
 
 ```sh
 npm install                            # 只装 devDependencies（react/react-dom/ws），供测试当 React/WebSocket 源
-npm test                               # = node --test  （65 个测试，约 0.7 秒）
+npm test                               # = node --test  （67 个测试，约 0.7 秒）
 npm run test:browser                   # 真实浏览器冒烟：需要 Chrome/Edge（自动探测路径）
 npm run diag                           # 从桌面应用的 Session Storage 里读出诊断环
 ```
@@ -333,8 +334,10 @@ Node 只要 20+：CDP 客户端优先用 Node 自带的 `WebSocket`（v22 起才
   ids 以重复的查询参数传递。**改 host 半后必须重启 DSH**（客户端 bundle 支持热更，宿主进程不会重载）。
 - **删除不可撤销**：这是设计如此，确认框会明确写出数量。目录级删除不进回收站；
   要可还原的清理请用 `cleanup-sessions.ps1`（默认演练 + 送回收站）。
-- **正在打开的对话不建议删除**：删除路由只动磁盘，host 内存里仍持有那个会话；删除后它的行可能还会被
-  列表带回来（与「运行中的会话不能归档」不同，这条路没有 host 侧拒绝）。要彻底清掉，先关掉/退出该对话再删。
+- **正在打开的对话不能删除**：Host 同时用「磁盘目录」和「内存会话库」表示一个会话，只删目录会让内存里的行
+  在下一次刷新时回来——表现就是「有时删得掉有时删不掉」。删除路由现在会向 Host 的内存会话库查询，
+  打开中的会话**逐个拒绝并给出原因**（把它切走再删即可）；这是「有时可以有时不可以」的根因。
+  删除目录时对 Windows 文件锁做重试，短暂占用不会再被当成失败。
 - **Fork / 导出 / 汇总给 AI / 未读 仍未提供**：它们在 0.2.0 被移除（含实现与测试），
   需要时用 `git revert` 回滚对应提交，或在 0.1.0 的 tag/提交上取。
 - **只在 Web 客户端上做过实测**：插件声明 `platform: "web"`；Tauri/其他壳未验证（理论上同构，

@@ -148,12 +148,65 @@ interface DeleteOutcome {
 }
 
 /**
+ * Why an open conversation cannot be deleted.
+ *
+ * A session lives in two places: its directory on disk and the Host's in-memory
+ * session store. Deleting only the directory leaves the live session in the
+ * store, so the next list pull puts the row back — the delete looks like it
+ * silently did nothing, which is exactly the "sometimes it works, sometimes it
+ * doesn't" report. Refuse it out loud instead, and let the user switch away.
+ */
+const LIVE_REASON = '会话正在打开，请先切换到其他会话再删除'
+
+/**
+ * The Host's in-memory session store, when this build exposes it.
+ *
+ * Resolved through `ctx.get` on each delete instead of being injected: a build
+ * without the service must still mount the route (and the route still works,
+ * it just cannot tell an open session from a closed one).
+ *
+ * @param ctx - host plugin context (Cordis).
+ * @returns the service, or null.
+ */
+function liveSessions(ctx: any): { get(id: string): unknown } | null {
+  try {
+    if (typeof ctx.get !== 'function') return null
+    const service = ctx.get('sessions')
+    return service !== null && service !== undefined && typeof service.get === 'function' ? service : null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Whether the Host currently holds this session open or loaded in memory.
+ *
+ * @param ctx - host plugin context (Cordis).
+ * @param id - a validated session id.
+ * @returns true when deleting its directory alone would leave a live row behind.
+ */
+function isLive(ctx: any, id: string): boolean {
+  const store = liveSessions(ctx)
+  if (store === null) return false
+  try {
+    const session = store.get(id)
+    return session !== null && session !== undefined
+  } catch {
+    return false
+  }
+}
+
+/**
  * Remove one stored session.
  *
  * The projection cache carries no id prefix and lives in one of two layouts:
  * the current per-record files `<id>.json` and the older per-id directories.
  * Both spellings are cleared in both layouts; a missing entry is not a failure
  * — the session directory is what the user asked to remove.
+ *
+ * `rm` retries on Windows: the session log may be briefly locked by the Host's
+ * own projection reads, and a lock that clears 100 ms later should not be
+ * reported to the user as a failed delete.
  *
  * @param id - a validated session id.
  * @returns a per-id outcome, never throws.
@@ -163,12 +216,12 @@ async function deleteOne(id: string): Promise<DeleteOutcome> {
     const dir = await sessionDirOf(id)
     if (dir === null) return { id, ok: true, removed: false, reason: 'not found' }
 
-    await rm(dir, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 120 })
 
     for (const name of siblingIds(id)) {
       for (const target of [join(projCacheRoot(), `${name}.json`), join(projCacheRoot(), name)]) {
         try {
-          await rm(target, { recursive: true, force: true })
+          await rm(target, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 })
         } catch {
           /* cache entry absent or locked: the session itself is already gone */
         }
@@ -194,13 +247,17 @@ function sendJson(
 /**
  * Handle `GET /session-multiselect/delete?ids=<id>&ids=<id>`.
  *
+ * A session the Host currently holds open/loaded is refused per id (see
+ * LIVE_REASON): deleting its directory would leave the live row in the list, so
+ * the delete would look like a no-op. Everything else is removed from disk.
+ *
  * Response: `{ ok, removed, results: [{ id, ok, removed, reason? }] }`, so the
  * panel can list per-id failures exactly like it does for the other batch
  * actions. An id whose directory is already gone comes back
  * `ok: true, removed: false` — the user's intent is "this row must not come
  * back", so it counts as deleted.
  */
-async function handleDelete(req: any, res: any, url: URL): Promise<void> {
+async function handleDelete(ctx: any, req: any, res: any, url: URL): Promise<void> {
   if (req.method !== 'GET') {
     sendJson(res, 405, { ok: false, error: 'method not allowed' })
     return
@@ -217,10 +274,30 @@ async function handleDelete(req: any, res: any, url: URL): Promise<void> {
     return
   }
 
+  // `dry=1` answers what the route WOULD do — open/live, directory present —
+  // without touching the disk. It exists so "is the live-session check working
+  // on this build?" can be answered without deleting a real conversation (the
+  // current session is the obvious live probe), and so a future report of a
+  // failed delete can be diagnosed from the outside.
+  if (url.searchParams.get('dry') === '1') {
+    const probes: Array<{ id: string; live: boolean; present: boolean }> = []
+    for (const id of ids) {
+      probes.push({ id, live: isLive(ctx, id), present: (await sessionDirOf(id)) !== null })
+    }
+    sendJson(res, 200, { ok: true, dry: true, results: probes })
+    return
+  }
+
   // Sequential, so a failure names the id it belongs to and a huge batch does
   // not fan out into hundreds of concurrent directory removals.
   const results: DeleteOutcome[] = []
-  for (const id of ids) results.push(await deleteOne(id))
+  for (const id of ids) {
+    if (isLive(ctx, id)) {
+      results.push({ id, ok: false, removed: false, reason: LIVE_REASON })
+      continue
+    }
+    results.push(await deleteOne(id))
+  }
 
   const removed = results.filter((r) => r.removed).length
   const failed = results.filter((r) => r.ok !== true)
@@ -240,7 +317,7 @@ export function apply(ctx: any): void {
         path: ROUTE_PREFIX,
         handler: async (req: any, res: any) => {
           const url = new URL(req.url ?? '/', 'http://dsh.internal')
-          if (url.pathname === `${ROUTE_PREFIX}/delete`) return handleDelete(req, res, url)
+          if (url.pathname === `${ROUTE_PREFIX}/delete`) return handleDelete(ctx, req, res, url)
           sendJson(res, 404, { ok: false, error: 'not found' })
         },
       }),

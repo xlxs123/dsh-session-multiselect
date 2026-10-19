@@ -51,8 +51,9 @@ async function makeHome() {
 }
 
 /** Collect the route handler the plugin registers. */
-function mountRoute(plugin) {
+function mountRoute(plugin, { live = [] } = {}) {
   let handler
+  const liveIds = new Set(live)
   const ctx = {
     effect(body) {
       body()
@@ -64,6 +65,13 @@ function mountRoute(plugin) {
         return () => {}
       },
     },
+    // The Host's in-memory session store (`ctx.sessions`): a session present
+    // here is open/loaded in the UI, and deleting only its directory would leave
+    // the live row to come back on the next list pull.
+    get(name) {
+      if (name !== 'sessions') return undefined
+      return { get: (id) => (liveIds.has(id) ? { id } : undefined) }
+    },
   }
   plugin.apply(ctx)
   assert.equal(typeof handler, 'function', 'apply() must register a route handler')
@@ -71,9 +79,10 @@ function mountRoute(plugin) {
 }
 
 /** Minimal request/response doubles: the route is GET with repeated `ids`. */
-function fakeExchange(method, ids, path = '/session-multiselect/delete') {
+function fakeExchange(method, ids, path = '/session-multiselect/delete', extra = {}) {
   const query = new URLSearchParams()
   for (const id of Array.isArray(ids) ? ids : ids === undefined ? [] : [ids]) query.append('ids', id)
+  for (const [key, value] of Object.entries(extra)) query.append(key, value)
   const req = {
     method,
     url: query.toString() === '' ? path : `${path}?${query.toString()}`,
@@ -155,6 +164,61 @@ test('deletes subagent sessions, whose ids are bare UUIDs', async () => {
     assert.equal(existsSync(join(wsA, ids.live)), false)
     assert.equal(existsSync(join(wsA, ids.child)), false, 'the bare-UUID session directory must be gone')
     assert.equal(existsSync(join(cache, `${ids.child}.json`)), false, 'its cache file must be gone too')
+  } finally {
+    process.env.DSH_HOME = previous
+    await rm(home, { recursive: true, force: true })
+  }
+})
+
+test('refuses to delete a conversation the host still holds open', async () => {
+  const { home, ids, wsA, cache } = await makeHome()
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  try {
+    const plugin = await import(`${MODULE.href}?case=live`)
+    const handler = mountRoute(plugin, { live: [ids.live] })
+
+    const { req, res } = fakeExchange('GET', [ids.live, ids.other])
+    await handler(req, res)
+
+    // Deleting only the directory of an open session leaves the Host's live row
+    // in place, so the next list pull puts it back: that is the "sometimes it
+    // works, sometimes it doesn't" report. Say so per id instead.
+    assert.equal(res.status, 200)
+    assert.equal(res.payload.ok, false)
+    assert.equal(res.payload.removed, 1, 'the rest of the batch still deletes')
+    const live = res.payload.results.find((r) => r.id === ids.live)
+    assert.equal(live.ok, false)
+    assert.equal(live.removed, false)
+    assert.match(live.reason, /正在打开/u)
+    assert.equal(existsSync(join(wsA, ids.live)), true, 'an open conversation keeps its directory')
+    assert.equal(existsSync(join(cache, `${ids.live}.json`)), true, 'and its cache entry')
+    assert.equal(existsSync(join(wsA, ids.other)), false, 'the closed one is gone')
+  } finally {
+    process.env.DSH_HOME = previous
+    await rm(home, { recursive: true, force: true })
+  }
+})
+
+test('dry=1 reports open/live state without touching the disk', async () => {
+  const { home, ids, wsA } = await makeHome()
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  try {
+    const plugin = await import(`${MODULE.href}?case=dry`)
+    const handler = mountRoute(plugin, { live: [ids.live] })
+
+    const { req, res } = fakeExchange('GET', [ids.live, ids.other], '/session-multiselect/delete', { dry: '1' })
+    await handler(req, res)
+
+    assert.equal(res.status, 200)
+    assert.equal(res.payload.dry, true)
+    const byId = Object.fromEntries(res.payload.results.map((r) => [r.id, r]))
+    assert.deepEqual({ live: byId[ids.live].live, present: byId[ids.live].present }, { live: true, present: true })
+    assert.deepEqual({ live: byId[ids.other].live, present: byId[ids.other].present }, { live: false, present: true })
+    // A dry run is a read: nothing may be removed.
+    assert.equal(existsSync(join(wsA, ids.live)), true, 'dry run must not delete the open session')
+    assert.equal(existsSync(join(wsA, ids.other)), true, 'dry run must not delete the closed session either')
   } finally {
     process.env.DSH_HOME = previous
     await rm(home, { recursive: true, force: true })
