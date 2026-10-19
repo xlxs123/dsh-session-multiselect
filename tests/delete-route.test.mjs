@@ -10,7 +10,7 @@
  */
 
 import assert from 'node:assert/strict'
-import { mkdtemp, mkdir, writeFile, readdir, rm, stat } from 'node:fs/promises'
+import { mkdtemp, mkdir, writeFile, readFile, readdir, rm, stat } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -41,13 +41,21 @@ async function makeHome() {
   await writeFile(join(wsA, ids.child, 'session.v4.jsonl.zstd'), Buffer.alloc(32, 3))
   // Projection caches come in two layouts and are named after the full session
   // id: current per-record `<id>.json` files, plus older per-id directories.
+  // The per-record file also carries the only title the Host stores, which the
+  // trash reads before moving it.
   const cache = join(home, 'storages', 'session_projcache', 'sessions')
   await mkdir(cache, { recursive: true })
-  await writeFile(join(cache, `${ids.live}.json`), '{"stale":true}')
-  await writeFile(join(cache, `${ids.other}.json`), '{"stale":true}')
-  await writeFile(join(cache, `${ids.child}.json`), '{"stale":true}')
+  const cacheFile = (title) => JSON.stringify({ version: 7, record: { identity: {}, rows: { title: { ver: 1, seq: 1, val: title } } } })
+  await writeFile(join(cache, `${ids.live}.json`), cacheFile('Alpha live'))
+  await writeFile(join(cache, `${ids.other}.json`), cacheFile('Beta other'))
+  await writeFile(join(cache, `${ids.child}.json`), cacheFile('Child agent'))
   await mkdir(join(cache, '11111111-1111-1111-1111-111111111111'), { recursive: true })
   return { home, ids, wsA, wsB, cache }
+}
+
+/** The trash root the host half owns under one throwaway home. */
+function trashRootOf(home) {
+  return join(home, 'trash', 'session-multiselect')
 }
 
 /** Collect the route handler the plugin registers. */
@@ -393,6 +401,128 @@ test('the workspace scan survives without any sessions root', async () => {
     await handler(req, res)
     assert.equal(res.status, 200)
     assert.equal(res.payload.results[0].reason, 'not found')
+  } finally {
+    process.env.DSH_HOME = previous
+    await rm(home, { recursive: true, force: true })
+  }
+})
+
+test('delete moves the conversation into the trash instead of destroying it', async () => {
+  const { home, ids, wsA, cache } = await makeHome()
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  try {
+    const plugin = await import(`${MODULE.href}?case=trashmove`)
+    const handler = mountRoute(plugin)
+    const { req, res } = fakeExchange('GET', [ids.live])
+    await handler(req, res)
+    assert.equal(res.status, 200)
+    assert.equal(res.payload.removed, 1)
+    assert.equal(existsSync(join(wsA, ids.live)), false, 'the live list no longer finds it')
+    assert.equal(existsSync(join(cache, `${ids.live}.json`)), false, 'its cache left the projection root')
+
+    // One trash entry holding the session directory, the cache file and metadata.
+    const entries = await readdir(trashRootOf(home), { withFileTypes: true })
+    assert.equal(entries.length, 1)
+    const entryDir = join(trashRootOf(home), entries[0].name)
+    assert.equal(existsSync(join(entryDir, 'session', 'session.v4.jsonl.zstd')), true)
+    assert.equal(existsSync(join(entryDir, 'cache', `${ids.live}.json`)), true)
+    const meta = JSON.parse(await readFile(join(entryDir, 'meta.json'), 'utf8'))
+    assert.equal(meta.id, ids.live)
+    assert.equal(meta.workspace, '--D-Chat--')
+    assert.equal(meta.title, 'Alpha live', 'the title is captured before the cache moves')
+    assert.equal(typeof meta.deletedAt, 'number')
+
+    // The trash listing is what the panel shows.
+    const list = fakeExchange('GET', [], '/session-multiselect/trash')
+    await handler(list.req, list.res)
+    assert.equal(list.res.status, 200)
+    assert.equal(list.res.payload.retentionDays, 7)
+    assert.deepEqual(
+      list.res.payload.entries.map((entry) => [entry.id, entry.title, entry.workspace]),
+      [[ids.live, 'Alpha live', '--D-Chat--']],
+    )
+  } finally {
+    process.env.DSH_HOME = previous
+    await rm(home, { recursive: true, force: true })
+  }
+})
+
+test('a trashed conversation can be restored to its workspace', async () => {
+  const { home, ids, wsA, cache } = await makeHome()
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  try {
+    const plugin = await import(`${MODULE.href}?case=restore`)
+    const handler = mountRoute(plugin)
+    const deleted = fakeExchange('GET', [ids.live])
+    await handler(deleted.req, deleted.res)
+
+    const restored = fakeExchange('GET', [ids.live], '/session-multiselect/restore')
+    await handler(restored.req, restored.res)
+    assert.equal(restored.res.status, 200)
+    assert.equal(restored.res.payload.restored, 1)
+    assert.equal(existsSync(join(wsA, ids.live, 'session.v4.jsonl.zstd')), true, 'back where it came from')
+    assert.equal(existsSync(join(cache, `${ids.live}.json`)), true, 'its cache returns too')
+    assert.deepEqual(await readdir(trashRootOf(home)), [], 'the entry is gone')
+
+    // Restoring again reports "not in the trash" instead of throwing.
+    const again = fakeExchange('GET', [ids.live], '/session-multiselect/restore')
+    await handler(again.req, again.res)
+    assert.equal(again.res.payload.results[0].ok, false)
+    assert.match(again.res.payload.results[0].reason, /回收站/u)
+  } finally {
+    process.env.DSH_HOME = previous
+    await rm(home, { recursive: true, force: true })
+  }
+})
+
+test('restore refuses to overwrite a conversation that took the id back', async () => {
+  const { home, ids, wsA } = await makeHome()
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  try {
+    const plugin = await import(`${MODULE.href}?case=restoreexists`)
+    const handler = mountRoute(plugin)
+    const deleted = fakeExchange('GET', [ids.live])
+    await handler(deleted.req, deleted.res)
+
+    // Something recreated the conversation at its old path while it was trashed.
+    await mkdir(join(wsA, ids.live), { recursive: true })
+    await writeFile(join(wsA, ids.live, 'session.v4.jsonl.zstd'), Buffer.alloc(8))
+
+    const restored = fakeExchange('GET', [ids.live], '/session-multiselect/restore')
+    await handler(restored.req, restored.res)
+    assert.equal(restored.res.payload.results[0].ok, false)
+    assert.match(restored.res.payload.results[0].reason, /已存在/u)
+    assert.equal(existsSync(join(wsA, ids.live, 'session.v4.jsonl.zstd')), true, 'the live copy is untouched')
+    assert.equal((await readdir(trashRootOf(home))).length, 1, 'the trashed copy stays restorable')
+  } finally {
+    process.env.DSH_HOME = previous
+    await rm(home, { recursive: true, force: true })
+  }
+})
+
+test('trash entries older than the retention window are purged', async () => {
+  const { home, ids } = await makeHome()
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  try {
+    const plugin = await import(`${MODULE.href}?case=trashretention`)
+    const handler = mountRoute(plugin)
+    const deleted = fakeExchange('GET', [ids.live])
+    await handler(deleted.req, deleted.res)
+
+    const entries = await readdir(trashRootOf(home))
+    const metaPath = join(trashRootOf(home), entries[0], 'meta.json')
+    const meta = JSON.parse(await readFile(metaPath, 'utf8'))
+    meta.deletedAt = Date.now() - (8 * 24 * 60 * 60 * 1000)
+    await writeFile(metaPath, JSON.stringify(meta))
+
+    const list = fakeExchange('GET', [], '/session-multiselect/trash')
+    await handler(list.req, list.res)
+    assert.deepEqual(list.res.payload.entries, [], 'the expired entry is not listed')
+    assert.deepEqual(await readdir(trashRootOf(home)), [], 'and it is gone from disk')
   } finally {
     process.env.DSH_HOME = previous
     await rm(home, { recursive: true, force: true })

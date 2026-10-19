@@ -275,8 +275,8 @@ function makeCtx({ sessions, workspaces }) {
  * `{ ids, byId, 鈥?}` one (what the workspace and other clients read) or the
  * flattened `{ items, 鈥?}` projection. Both must list sessions.
  */
-function makeSessions({ items = [], records = {}, onCreate = () => 'new-session', shape = 'normalized' } = {}) {
-	const calls = { deleted: [], forked: [], created: [], prompted: [], opened: [], refreshed: 0, deleteRequests: 0 }
+function makeSessions({ items = [], records = {}, onCreate = () => 'new-session', shape = 'normalized', trashEntries = [] } = {}) {
+	const calls = { deleted: [], forked: [], created: [], prompted: [], opened: [], refreshed: 0, deleteRequests: 0, trashRequests: 0, restored: [] }
 	/** Set by the fetch stub below; restores the real `fetch` for this world. */
 	let restoreFetch = () => {}
 	let summaries = [...items]
@@ -317,6 +317,29 @@ function makeSessions({ items = [], records = {}, onCreate = () => 'new-session'
 	const realFetch = globalThis.fetch
 	globalThis.fetch = async (input, init = {}) => {
 		const url = typeof input === 'string' ? input : String(input?.url ?? input)
+		// The trash listing and the restore call, mirroring the host half.
+		if (url.includes('/session-multiselect/trash')) {
+			calls.trashRequests += 1
+			return {
+				ok: true,
+				status: 200,
+				async json() {
+					return { ok: true, retentionDays: 7, entries: trashEntries }
+				}
+			}
+		}
+		if (url.includes('/session-multiselect/restore')) {
+			const requested = [...new URL(url, 'http://dsh.internal').searchParams.getAll('ids')]
+			calls.restored.push(...requested)
+			const results = requested.map((id) => ({ id, ok: true, restored: true }))
+			return {
+				ok: true,
+				status: 200,
+				async json() {
+					return { ok: true, restored: results.length, results }
+				}
+			}
+		}
 		if (!url.includes('/session-multiselect/delete')) {
 			if (realFetch === undefined) throw new Error(`unexpected fetch: ${init.method ?? 'GET'} ${url}`)
 			return realFetch(input, init)
@@ -441,12 +464,12 @@ function makeWorkspaces({ pinned = [], archived = [] } = {}) {
 const flush = () => new Promise((resolve) => { setImmediate(resolve) })
 
 /** Mount the plugin and return everything a test needs to drive it. */
-function mount({ items = [], records, onCreate, shape, workspaces } = {}) {
+function mount({ items = [], records, onCreate, shape, workspaces, trashEntries } = {}) {
 	const bundle = loadBundle()
 	const primitives = makePrimitives([])
 	const react = makeReact()
 	const { exports } = bundle.instantiate(primitives, react)
-	const sessions = makeSessions({ items, records, onCreate, shape })
+	const sessions = makeSessions({ items, records, onCreate, shape, trashEntries })
 	const { ctx, registrations, dictionaries, effects } = makeCtx({ sessions, workspaces })
 	exports.apply(ctx)
 	const registration = registrations[0]
@@ -876,6 +899,43 @@ test('the panel hides subagent sessions the shell itself never lists', () => {
 	assert.equal(heading.props.children[2].props.children, 'group.count{"n":0,"m":2}')
 })
 
+test('the restore view lists trashed conversations and puts one back', async () => {
+	const world = mount({
+		items: [{ sessionId: 'a', title: 'Alpha', updatedAt: 30 }],
+		trashEntries: [{ id: 'gone', title: 'Gone', workspace: 'D:\\x', deletedAt: 1700000000000, entry: '1-gone' }]
+	})
+	const body = world.renderPanelBody()
+	const toolbar = body.props.children[0]
+	const trashButton = toolbar.props.children[toolbar.props.children.length - 1]
+	assert.equal(trashButton.props.children, 'trash.open', 'the toolbar offers the restore view')
+
+	trashButton.props.onClick()
+	await flush()
+	const trashView = world.renderPanelBody()
+	assert.equal(trashView.props.children[0].props.children[0].props.children, 'trash.title', 'the toolbar switches to the trash')
+	const rows = trashView.props.children[1].props.children
+	assert.equal(rows.length, 1)
+	assert.equal(rows[0].props.className, 'dsh-msel-trashRow')
+	assert.equal(rows[0].props.children[0].props.children, 'Gone', 'the captured title is shown')
+	const restoreButton = rows[0].props.children[3].props.children
+	assert.equal(restoreButton.props.children, 'trash.restore')
+
+	restoreButton.props.onClick()
+	for (let tick = 0; tick < 5; tick += 1) await flush()
+	assert.deepEqual(world.sessions.calls.restored, ['gone'], 'restore goes through the host route')
+	assert.equal(world.sessions.calls.trashRequests, 2, 'the restore view reloads after the restore')
+	assert.equal(world.sessions.calls.refreshed, 1, 'the session list is re-pulled so the row comes back')
+	const status = world.renderPanelBody().props.children.find((child) => child !== null && child !== undefined && child.props !== undefined && child.props['data-tone'] !== undefined)
+	assert.match(String(status.props.children), /trash\.restored/u)
+
+	// Back to the conversation list: the session row is there again.
+	trashView.props.children[0].props.children[1].props.onClick()
+	const back = world.renderPanelBody()
+	const backToolbar = back.props.children[0]
+	assert.equal(backToolbar.props.children[backToolbar.props.children.length - 1].props.children, 'trash.open', 'the toolbar offers the trash again')
+	assert.deepEqual(listRows(back).map(rowTitle), ['Alpha'])
+})
+
 test('the panel heads every workspace group and selects one with a single click', () => {
 	const items = [
 		{ sessionId: 'a', title: 'Alpha', updatedAt: 30, cwd: 'D:\\alpha' },
@@ -937,7 +997,8 @@ test('a selected row updates the count and enables the batch actions', () => {
 	assert.equal(rows[0].props['data-selected'], 'true')
 	assert.equal(rows[1].props['aria-selected'], false)
 	const toolbar = body.props.children[0]
-	const count = toolbar.props.children[toolbar.props.children.length - 1]
+	// The toolbar now ends with the trash toggle; the selected count is beside it.
+	const count = toolbar.props.children[toolbar.props.children.length - 2]
 	assert.match(count.props.children, /count\.selected/u)
 	assert.match(count.props.children, /"n":1/u)
 	const actionRow = body.props.children[3]
@@ -977,7 +1038,7 @@ test('select-all selects every visible row and then offers to clear', () => {
 	assert.deepEqual(rows.map((row) => row.props['aria-selected']), [true, true])
 	const toolbar = next.props.children[0]
 	assert.equal(toolbar.props.children[1].props.children, 'all.clear')
-	assert.match(toolbar.props.children[toolbar.props.children.length - 1].props.children, /"n":2/u)
+	assert.match(toolbar.props.children[toolbar.props.children.length - 2].props.children, /"n":2/u)
 })
 
 test('delete asks for confirmation, then re-pulls the list so the row leaves', async () => {

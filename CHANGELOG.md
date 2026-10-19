@@ -3,6 +3,17 @@
 版本号与 [GitHub Releases](https://github.com/xlxs123/dsh-session-multiselect/releases) 同步。
 推送 `v*` tag 时由 `.github/workflows/release.yml` 校验版本、跑测试、并发布带版本无关 tarball 的 Release。
 
+## 0.5.0
+
+- **删除改为回收站**：删除把会话目录连同投影缓存移进 `$DSH_HOME/trash/session-multiselect/`，
+  而不是 `rm -rf`；保留 7 天，超期条目在下次删除/查看/恢复时自动清理。
+- **回收站视图**：面板工具栏新增「回收站」，列出最近删除的对话（标题、工作区、删除时间），
+  一键恢复回原工作区（目标已存在同名会话时拒绝覆盖）。标题在删除时从投影缓存读出并存入 `meta.json`。
+- 新增 `GET /session-multiselect/trash` 与 `GET /session-multiselect/restore?ids=…` 两个路由；
+  restore 沿用删除路由的跨站守卫、批量上限与打开中会话拒绝。
+- 测试 75 个（新增回收站移动/列表/恢复往返/冲突拒绝/过期清理、面板回收站视图与恢复）。
+- 诊断 BUILD 升到 26。
+
 ## 0.4.4
 
 - 安全：删除路由拒绝浏览器跨站请求（`Sec-Fetch-Site: cross-site` → 403）——该路由有副作用却只能是 GET，
