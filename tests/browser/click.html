@@ -295,9 +295,21 @@ function makeWorkspaces() {
   };
 }
 const workspaces = makeWorkspaces();
+// Deterministic locale fixture: the smoke assertions are written against the
+// plugin's Chinese labels, and the bundle's own translator falls back to
+// `navigator.language` when the locale service has no snapshot. Without this
+// the suite passes on a zh-CN desktop and fails on an English CI runner —
+// which is exactly what happened on GitHub Actions. The fixture now answers
+// `zh` on every machine, so the labels (and every click that finds a button by
+// its label) are the same everywhere.
 const ctx = {
   effect: (fn) => { const dispose = fn(); return typeof dispose === 'function' ? dispose : () => {}; },
-  locale: { register: () => () => {}, subscribe: () => () => {} },
+  locale: {
+    getSnapshot: () => ({ active: 'zh', available: ['zh', 'en'] }),
+    getLocale: () => ({ active: 'zh' }),
+    register: () => () => {},
+    subscribe: () => () => {}
+  },
   slots: { inject: () => () => {}, register: () => ({}) },
   get: (name) => (name === 'workspaces' ? workspaces : undefined),
   sessions
