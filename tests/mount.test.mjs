@@ -449,14 +449,24 @@ function mount({ items = [], records, onCreate, shape, workspaces } = {}) {
 	const { ctx, registrations, dictionaries, effects } = makeCtx({ sessions, workspaces })
 	exports.apply(ctx)
 	const registration = registrations[0]
-	const face = registration.entry.options.inject()
+	const injected = registration.entry.options.inject()
+	// DSH's slot renderer reserves the key `hooks` in an entry's inject() face:
+	// it binds every member as a `use<Name>` prop and REMOVES the key before the
+	// component sees it (`runInject` → `bindInjectSources` in
+	// dsh-client-ui-renderer). Mirror that transformation here — otherwise a
+	// regression that puts the plugin's stores back under `hooks` would pass in
+	// these tests and crash in the real slots (which is exactly what happened:
+	// the footer entry was retired with active:false for weeks).
+	const rendererFace = { ...injected }
+	delete rendererFace.hooks
+	// A convenience view for the helpers below: the same injected face, with the
+	// stores also reachable under `hooks` (tests drive the stores directly, not
+	// through the component's props).
+	const face = { ...injected, hooks: injected.seats ?? injected.hooks }
 	const props = {
-		actions: face.actions,
-		hooks: face.hooks,
-		// The slot hands the component exactly what `inject()` returned; the
-		// resolved icons and the tooltip helper travel with it.
-		icons: face.icons,
-		tip: face.tip,
+		...rendererFace,
+		// The slot hands the component every surviving injected prop; the resolved
+		// icons and the tooltip helper travel with it.
 		t: (key, params) => (params === undefined ? key : `${key}${JSON.stringify(params)}`)
 	}
 	const renderEntry = () => react.withHooks('MultiSelectEntry', () => registration.entry.component(props))
@@ -534,6 +544,22 @@ test('apply registers dictionaries, a store, and the footer slot entry', () => {
 	assert.ok(world.effects.some((effect) => effect.label.includes('dictionaries')))
 })
 
+test('the footer inject face keeps the stores out of the renderer-reserved `hooks` key', () => {
+	// dsh-client-ui-renderer's runInject() treats an inject() face's `hooks`
+	// member as its injected-hook DSL: every entry becomes a `use<Name>` prop and
+	// the key is deleted before the component renders. Shipping the plugin's
+	// snapshot stores under that name handed the footer entry `undefined` and
+	// crashed it, so the slot retired the entry — the fallback button was dead
+	// while the header button hid the failure.
+	const world = mount({ items: [{ sessionId: 'a', title: 'Alpha', updatedAt: 30 }] })
+	const injected = world.entry.options.inject()
+	assert.equal(Object.hasOwn(injected, 'hooks'), false, 'inject() must not use the renderer-reserved `hooks` key')
+	assert.equal(typeof injected.seats?.panel?.subscribe, 'function', 'the stores travel as `seats`')
+	// Rendered with the renderer-shaped props (which omit `hooks`), the entry
+	// still paints — the component no longer depends on the reserved key.
+	assert.doesNotThrow(() => world.renderEntry(), 'the footer entry renders without a `hooks` prop')
+})
+
 test('every locale key the panel asks for exists in both dictionaries', () => {
 	const world = mount({
 		items: [
@@ -569,13 +595,13 @@ test('apply mounts with its own dialog when the platform seeds no primitives', (
 	assert.ok(dictionaries.has('sessionMultiselect'), 'the dictionaries registered as usual')
 
 	// The entry's dialog is this bundle's own implementation, driven by the same
-	// props the primitives' Modal takes.
+	// props the primitives' Modal takes. The props are the renderer-shaped ones:
+	// the reserved `hooks` key never reaches the component.
+	const rendererFace = { ...face }
+	delete rendererFace.hooks
 	const rendered = makeReact().withHooks('MultiSelectEntry', () => registrations[0].entry.component({
-		t: (key) => key,
-		actions: face.actions,
-		hooks: face.hooks,
-		icons: face.icons,
-		tip: face.tip
+		...rendererFace,
+		t: (key) => key
 	}))
 	const modal = rendered.props.children[1]
 	assert.equal(modal.type, exports.LocalModal, 'the dialog is the local one')
@@ -584,7 +610,7 @@ test('apply mounts with its own dialog when the platform seeds no primitives', (
 
 	// The store fallback keeps the preferences the panel reads, with the same
 	// surface: getSnapshot / subscribe / actions.
-	const store = face.hooks.store
+	const store = face.seats.store
 	assert.equal(typeof store.getSnapshot, 'function')
 	assert.equal(typeof store.subscribe, 'function')
 	assert.equal(store.getSnapshot().groupByWorkspace, true, 'the fallback store seeds its defaults')
