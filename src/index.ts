@@ -54,6 +54,16 @@ export const inject: readonly string[] = ['webServer']
 const ROUTE_PREFIX = '/session-multiselect'
 
 /**
+ * Largest id batch one request may carry.
+ *
+ * ids travel as repeated query parameters (GET has no body), so a huge batch
+ * runs into the Web server's request-line limit and fails as an opaque 431.
+ * The panel chunks its selection at this size, and the route refuses bigger
+ * batches with a clear error instead of letting the header limit decide.
+ */
+const MAX_BATCH = 200
+
+/**
  * A stored session id. Two shapes are real:
  *
  * - `session-<uuid>` — a top-level conversation;
@@ -271,6 +281,24 @@ async function handleDelete(ctx: any, req: any, res: any, url: URL): Promise<voi
   }
   if (ids.length === 0) {
     sendJson(res, 400, { ok: false, error: 'no ids' })
+    return
+  }
+  if (ids.length > MAX_BATCH) {
+    sendJson(res, 413, { ok: false, error: `too many ids in one request (max ${String(MAX_BATCH)})` })
+    return
+  }
+
+  // The route mutates state yet must be GET (see above), so a page on another
+  // origin could fire it through an <img>/fetch if it learned an id. Browsers
+  // label those `Sec-Fetch-Site: cross-site`; the GUI's own same-origin fetch,
+  // a direct navigation and curl say `same-origin`/`none` or omit the header.
+  // Only the browser-attested cross-site case is refused — this is a header
+  // guard, not authentication (the route has none on this build), and it must
+  // not break curl-based diagnosis.
+  const headers = req.headers
+  const fetchSite = headers !== null && typeof headers === 'object' ? headers['sec-fetch-site'] : undefined
+  if (fetchSite === 'cross-site') {
+    sendJson(res, 403, { ok: false, error: 'cross-site request refused' })
     return
   }
 

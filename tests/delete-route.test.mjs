@@ -79,12 +79,13 @@ function mountRoute(plugin, { live = [] } = {}) {
 }
 
 /** Minimal request/response doubles: the route is GET with repeated `ids`. */
-function fakeExchange(method, ids, path = '/session-multiselect/delete', extra = {}) {
+function fakeExchange(method, ids, path = '/session-multiselect/delete', extra = {}, headers = {}) {
   const query = new URLSearchParams()
   for (const id of Array.isArray(ids) ? ids : ids === undefined ? [] : [ids]) query.append('ids', id)
   for (const [key, value] of Object.entries(extra)) query.append(key, value)
   const req = {
     method,
+    headers,
     url: query.toString() === '' ? path : `${path}?${query.toString()}`,
   }
   const res = {
@@ -219,6 +220,55 @@ test('dry=1 reports open/live state without touching the disk', async () => {
     // A dry run is a read: nothing may be removed.
     assert.equal(existsSync(join(wsA, ids.live)), true, 'dry run must not delete the open session')
     assert.equal(existsSync(join(wsA, ids.other)), true, 'dry run must not delete the closed session either')
+  } finally {
+    process.env.DSH_HOME = previous
+    await rm(home, { recursive: true, force: true })
+  }
+})
+
+test('refuses a browser-attested cross-site request', async () => {
+  const { home, ids, wsA } = await makeHome()
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  try {
+    const plugin = await import(`${MODULE.href}?case=crosssite`)
+    const handler = mountRoute(plugin)
+
+    // The route changes state but must be GET, so another origin could fire it
+    // with an <img>/fetch if it learned an id. Browsers label that request.
+    const blocked = fakeExchange('GET', [ids.live], '/session-multiselect/delete', {}, { 'sec-fetch-site': 'cross-site' })
+    await handler(blocked.req, blocked.res)
+    assert.equal(blocked.res.status, 403)
+    assert.equal(blocked.res.payload.ok, false)
+    assert.equal(existsSync(join(wsA, ids.live)), true, 'a cross-site request must not delete anything')
+
+    // Same-origin (the GUI's own fetch) and header-less calls (curl diagnosis)
+    // keep working.
+    const allowed = fakeExchange('GET', [ids.live], '/session-multiselect/delete', {}, { 'sec-fetch-site': 'same-origin' })
+    await handler(allowed.req, allowed.res)
+    assert.equal(allowed.res.status, 200)
+    assert.equal(allowed.res.payload.removed, 1)
+  } finally {
+    process.env.DSH_HOME = previous
+    await rm(home, { recursive: true, force: true })
+  }
+})
+
+test('refuses a batch too large for one request line', async () => {
+  const { home, ids } = await makeHome()
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  try {
+    const plugin = await import(`${MODULE.href}?case=toolarge`)
+    const handler = mountRoute(plugin)
+    // 201 distinct well-formed ids: the real ceiling (MAX_BATCH = 200) is one
+    // below, so the host can explain the limit instead of the request line
+    // failing as an opaque 431.
+    const many = Array.from({ length: 201 }, (_, index) => `session-${String(index).padStart(8, '0')}-1111-1111-1111-111111111111`)
+    const { req, res } = fakeExchange('GET', many)
+    await handler(req, res)
+    assert.equal(res.status, 413)
+    assert.match(res.payload.error, /too many ids/u)
   } finally {
     process.env.DSH_HOME = previous
     await rm(home, { recursive: true, force: true })

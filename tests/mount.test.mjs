@@ -276,7 +276,7 @@ function makeCtx({ sessions, workspaces }) {
  * flattened `{ items, 鈥?}` projection. Both must list sessions.
  */
 function makeSessions({ items = [], records = {}, onCreate = () => 'new-session', shape = 'normalized' } = {}) {
-	const calls = { deleted: [], forked: [], created: [], prompted: [], opened: [], refreshed: 0 }
+	const calls = { deleted: [], forked: [], created: [], prompted: [], opened: [], refreshed: 0, deleteRequests: 0 }
 	/** Set by the fetch stub below; restores the real `fetch` for this world. */
 	let restoreFetch = () => {}
 	let summaries = [...items]
@@ -322,6 +322,7 @@ function makeSessions({ items = [], records = {}, onCreate = () => 'new-session'
 			return realFetch(input, init)
 		}
 		const requested = [...new URL(url, 'http://dsh.internal').searchParams.getAll('ids')]
+		calls.deleteRequests += 1
 		const results = []
 		for (const sessionId of requested) {
 			calls.deleted.push(sessionId)
@@ -1006,6 +1007,27 @@ test('delete asks for confirmation, then re-pulls the list so the row leaves', a
 	assert.equal(world.sessions.calls.refreshed, 1, 'the deleted row must leave the list without a reload')
 	// The row is gone; the other one is untouched.
 	assert.deepEqual(listRows(world.renderPanelBody()).map(rowTitle), ['Beta'])
+})
+
+test('a selection larger than one route batch travels as sequential requests', async () => {
+	// Ids ride in the query string, so the host caps one request at 200 ids and
+	// the panel chunks at the same size: a very large selection deletes 200 at a
+	// time instead of failing once as an opaque request-line (431) error.
+	const items = Array.from({ length: 250 }, (_, index) => ({
+		sessionId: `session-${String(index).padStart(4, '0')}-1111-1111-1111-111111111111`,
+		title: `Session ${String(index)}`,
+		updatedAt: 1000 - index
+	}))
+	const world = mount({ items })
+	world.renderPanelBody()
+	world.react.setterOf('MultiSelectPanel', 2)(new Set(items.map((item) => item.sessionId)))
+	world.renderPanelBody().props.children[3].props.children[0].props.onClick() // arm the confirmation
+	const confirm = world.renderPanelBody().props.children[2]
+	confirm.props.children[1].props.children[0].props.onClick()
+	for (let tick = 0; tick < 10; tick += 1) await flush()
+	assert.equal(world.sessions.calls.deleted.length, 250, 'every id was sent')
+	assert.equal(world.sessions.calls.deleteRequests, 2, '250 ids travel as 200 + 50')
+	assert.equal(world.sessions.calls.refreshed, 1, 'the list is re-pulled once after both batches')
 })
 
 test('the panel offers three actions, and the last two work in both directions', async () => {

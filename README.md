@@ -1,6 +1,7 @@
 # dsh-session-multiselect
 
 [![test](https://github.com/xlxs123/dsh-session-multiselect/actions/workflows/test.yml/badge.svg)](https://github.com/xlxs123/dsh-session-multiselect/actions/workflows/test.yml)
+[![release](https://img.shields.io/github/v/release/xlxs123/dsh-session-multiselect?label=release)](https://github.com/xlxs123/dsh-session-multiselect/releases)
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![node](https://img.shields.io/badge/node-%E2%89%A520-brightgreen.svg)](#开发)
 [![DSH Desktop](https://img.shields.io/badge/DSH%20Desktop-0.9.0%20%7C%200.10.0-black.svg)](#dsh-session-multiselect)
@@ -227,11 +228,23 @@ dsh plugin --profile web add .
 
 插件是标准 DSH bundle 包（声明 `dsh.bundle.patch` + `dsh.client`），**没有依赖需要安装**：仓库里就是可直接加载的产物。安装后**需要重启桌面应用**（profile 的 bundle 层栈与 `__DSH_BOOT__` 客户端图在启动时合成）。
 
+三种装法，任选其一：
+
 ```sh
+# 1) 预构建 tarball（GitHub Release，版本无关链接）
+dsh plugin --profile desktop add "https://github.com/xlxs123/dsh-session-multiselect/releases/latest/download/dsh-session-multiselect.tgz"
+
+# 2) 直接从 GitHub 仓库（免构建）
+dsh plugin --profile desktop add github:xlxs123/dsh-session-multiselect
+
+# 3) 本地源码（开发时）
 git clone https://github.com/xlxs123/dsh-session-multiselect.git
 cd dsh-session-multiselect
-dsh plugin --profile web add .     # 路径含空格时务必在包目录内执行 `add .`
+dsh plugin --profile desktop add .     # 路径含空格时务必在包目录内执行 `add .`
 ```
+
+> 市场收录（awesome-dsh-plugin 注册表）还在等维护者合并；合并后也可以直接在 dshmarket 里搜索安装。
+> npm 尚未发布，发布后 `dsh plugin --profile desktop add dsh-session-multiselect` 即可。
 
 **profile 名要对上正在用的那一个** —— 这是最容易踩的一脚：`$DSH_HOME/profiles/<名字>` 里没装这个插件，
 设置里当然不会有它的按钮，侧边栏也不会有它的入口。当前用的是哪个可以看 `DSH_PROFILE` 环境变量，
@@ -270,19 +283,29 @@ dsh plugin --profile desktop list    # 例：新版桌面应用用的是 desktop
 lib/index.js      Node half：会话删除路由（GET /session-multiselect/delete）
 lib/client.js     浏览器 bundle：选择模型、批量动作、头部注入与面板（window.__ModuleLoader__ 契约）
 src/index.ts      Node half 源码
-tests/            67 个测试：纯逻辑单测 + 以假 Cordis 上下文挂载真实 bundle + 头部注入与点击（含 DOM 桩）
+tests/            70 个测试：纯逻辑单测 + 以假 Cordis 上下文挂载真实 bundle + 头部注入与点击（含 DOM 桩）
                   + 删除路由对着临时 DSH_HOME 做真实文件系统验证（含子智能体会话的裸 UUID id、
-                    打开中的会话被拒绝、dry 探针）
-                  + 面板隐藏子智能体会话、删除后重拉列表；footer 入口避开 slot 渲染器保留键
+                    打开中的会话被拒绝、dry 探针、跨站拒绝、批量上限）
+                  + 面板隐藏子智能体会话、删除后重拉列表、大批量自动分批；footer 入口避开 slot 渲染器保留键
                   + 对着本机安装的 primitives 真实导出清单做兼容性验证
 tests/browser/    真实浏览器冒烟测试：真 React 18 + 无头 Chromium + 复制自工作区插件的头部与行 CSS
 ```
 
 ```sh
 npm install                            # 只装 devDependencies（react/react-dom/ws），供测试当 React/WebSocket 源
-npm test                               # = node --test  （67 个测试，约 0.7 秒）
+npm test                               # = node --test  （70 个测试，约 0.9 秒）
 npm run test:browser                   # 真实浏览器冒烟：需要 Chrome/Edge（自动探测路径）
 npm run diag                           # 从桌面应用的 Session Storage 里读出诊断环
+
+# 只读探针：某个会话是否被 Host 内存持有 / 目录是否还在（不删除任何东西）
+curl.exe "http://127.0.0.1:<端口>/session-multiselect/delete?dry=1&ids=<会话id>"
+```
+
+发布：推 `v*` tag 即触发 `.github/workflows/release.yml`（校验 tag 与 `package.json` 版本一致、
+跑 `npm test`、发布版本无关的 `dsh-session-multiselect.tgz`）。先改版本再：
+
+```sh
+git tag v0.4.4 && git push origin v0.4.4
 ```
 
 `tests/browser/harness.mjs` 会起一个静态服务（插件目录 + 真实 React UMD），用 CDP 驱动无头 Chromium
@@ -332,12 +355,18 @@ Node 只要 20+：CDP 客户端优先用 Node 自带的 `WebSocket`（v22 起才
 - **该路由只用 GET**：DSH 的 Web 服务器对**任何** POST 都回 405 —— 实测即便 POST 到一个
   完全不存在的路径也是 405，而 GET 会正常落到路由（不存在则 404）。所以插件路由只能走 GET，
   ids 以重复的查询参数传递。**改 host 半后必须重启 DSH**（客户端 bundle 支持热更，宿主进程不会重载）。
+- **该路由有副作用却只能是 GET，因此有两道防护**：浏览器跨站请求（`Sec-Fetch-Site: cross-site`）一律
+  403 拒绝——防的是"另一个网页借 `<img>/fetch` 顺手删你的对话"；单次请求 id 上限 200，面板自动分批——
+  防的是超长 URL 变成难懂的请求行 431。两者都不是鉴权（路由在宿主侧本来就无鉴权），只是让越界请求
+  得到明确拒绝。
 - **删除不可撤销**：这是设计如此，确认框会明确写出数量。目录级删除不进回收站；
   要可还原的清理请用 `cleanup-sessions.ps1`（默认演练 + 送回收站）。
 - **正在打开的对话不能删除**：Host 同时用「磁盘目录」和「内存会话库」表示一个会话，只删目录会让内存里的行
   在下一次刷新时回来——表现就是「有时删得掉有时删不掉」。删除路由现在会向 Host 的内存会话库查询，
   打开中的会话**逐个拒绝并给出原因**（把它切走再删即可）；这是「有时可以有时不可以」的根因。
   删除目录时对 Windows 文件锁做重试，短暂占用不会再被当成失败。
+  想知道某个会话是不是被内存持有，用只读探针（不删任何东西）：
+  `curl.exe "http://127.0.0.1:<端口>/session-multiselect/delete?dry=1&ids=<id>"` → 返回 `{ live, present }`。
 - **Fork / 导出 / 汇总给 AI / 未读 仍未提供**：它们在 0.2.0 被移除（含实现与测试），
   需要时用 `git revert` 回滚对应提交，或在 0.1.0 的 tag/提交上取。
 - **只在 Web 客户端上做过实测**：插件声明 `platform: "web"`；Tauri/其他壳未验证（理论上同构，

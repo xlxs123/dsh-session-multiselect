@@ -1,0 +1,41 @@
+name: release
+
+# Tag-driven release: pushing v* builds the tarball and publishes a GitHub
+# Release with a VERSION-FREE asset name, which is what the registry's
+# `tarball:` links and the README point at. The marketplace entry never needs
+# editing again: https://github.com/xlxs123/dsh-session-multiselect/releases/latest/download/dsh-session-multiselect.tgz
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: npm ci --no-audit --no-fund
+      - name: Tag matches package.json version
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          pkg="$(node -p "require('./package.json').version")"
+          if [ "$tag" != "$pkg" ]; then
+            echo "tag $tag does not match package.json $pkg" >&2
+            exit 1
+          fi
+      - name: Tests
+        run: npm test
+      - name: Build tarball with a version-free name
+        run: |
+          npm pack
+          mv dsh-session-multiselect-*.tgz dsh-session-multiselect.tgz
+      - name: Publish the release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dsh-session-multiselect.tgz
+          generate_release_notes: true
