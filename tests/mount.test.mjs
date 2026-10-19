@@ -1235,7 +1235,10 @@ test('the panel can group by date and filter to running or pinned rows', () => {
 
 test('the visible list can be copied as Markdown', async () => {
 	const copied = []
-	Object.defineProperty(globalThis.navigator, 'clipboard', { value: { writeText: async (value) => { copied.push(value) } }, configurable: true })
+	const hadNavigator = globalThis.navigator !== undefined
+	const clipboard = { writeText: async (value) => { copied.push(value) } }
+	if (hadNavigator) Object.defineProperty(globalThis.navigator, 'clipboard', { value: clipboard, configurable: true })
+	else Object.defineProperty(globalThis, 'navigator', { value: { clipboard }, configurable: true })
 	try {
 		const world = mount({
 			items: [
@@ -1256,7 +1259,8 @@ test('the visible list can be copied as Markdown', async () => {
 		assert.match(String(status.props.children), /export\.copied/u)
 		world.sessions.restoreFetch()
 	} finally {
-		delete globalThis.navigator.clipboard
+		if (hadNavigator) delete globalThis.navigator.clipboard
+		else delete globalThis.navigator
 	}
 })
 
@@ -1416,7 +1420,7 @@ test('a running conversation is refused locally, by title, and never reaches the
 	assert.equal(status.props['data-tone'], 'error')
 	assert.match(String(status.props.children), /status\.deleteFailed/u)
 	assert.match(String(status.props.children), /「Busy」/u, 'the failure names the conversation by title')
-	assert.match(String(status.props.children), /会话正在运行/u, 'the reason explains why it was skipped')
+	assert.match(String(status.props.children), /会话正在运行|conversation is running|会话正在/u, 'the reason explains why it was skipped')
 })
 
 test('a deleted conversation that DSH still holds open says when its row leaves', async () => {

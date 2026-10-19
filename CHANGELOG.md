@@ -3,6 +3,11 @@
 版本号与 [GitHub Releases](https://github.com/xlxs123/dsh-session-multiselect/releases) 同步。
 推送 `v*` tag 时由 `.github/workflows/release.yml` 校验版本、跑测试、并发布带版本无关 tarball 的 Release。
 
+## 0.10.1
+
+- 修复 CI 环境差异导致的测试失败（仅测试代码，无行为变化）：Node 20 没有全局 `navigator`，
+  剪贴板测试改为自建 stub；"运行中"拒绝原因在英文 locale 下是英文，断言改为中英兼容。
+- 0.10.0 的 GitHub Release 因此没有生成；本版恢复发布（内容与 0.10.0 相同）。
 ## 0.10.0
 
 - **日期分组**：分组切换为「按工作区 / 按日期 / 不分组」，日期分为今天 / 昨天 / 最近 7 天 / 更早；
