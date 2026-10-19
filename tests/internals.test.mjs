@@ -148,6 +148,12 @@ test('markStatusText names what really happened, partial failures included', () 
 test('failureList names each id once, short, with its reason', () => {
 	assert.equal(helpers.failureList([{ id: '0123456789', reason: 'boom' }, { id: 'ffffffffff', reason: 'bang' }]),
 		'• 01234567: boom\n• ffffffff: bang')
+	// Every top-level id starts with `session-`; the short label must come from
+	// the UUID part, and a title wins over any id form.
+	assert.equal(helpers.failureList([{ id: 'session-abcdef12-3456-7890', reason: 'busy' }]),
+		'• abcdef12: busy')
+	assert.equal(helpers.failureList([{ id: 'session-abcdef12', title: '项目讨论', reason: 'busy' }]),
+		'• 「项目讨论」: busy')
 	assert.equal(helpers.failureList(undefined), '')
 })
 

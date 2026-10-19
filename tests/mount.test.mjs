@@ -275,7 +275,7 @@ function makeCtx({ sessions, workspaces }) {
  * `{ ids, byId, 鈥?}` one (what the workspace and other clients read) or the
  * flattened `{ items, 鈥?}` projection. Both must list sessions.
  */
-function makeSessions({ items = [], records = {}, onCreate = () => 'new-session', shape = 'normalized', trashEntries = [] } = {}) {
+function makeSessions({ items = [], records = {}, onCreate = () => 'new-session', shape = 'normalized', trashEntries = [], openOnDelete = [] } = {}) {
 	const calls = { deleted: [], forked: [], created: [], prompted: [], opened: [], refreshed: 0, deleteRequests: 0, trashRequests: 0, restored: [] }
 	/** Set by the fetch stub below; restores the real `fetch` for this world. */
 	let restoreFetch = () => {}
@@ -354,8 +354,12 @@ function makeSessions({ items = [], records = {}, onCreate = () => 'new-session'
 				results.push({ id: sessionId, ok: true, removed: false, reason: 'not found' })
 				continue
 			}
-			summaries = summaries.filter((item) => item.sessionId !== sessionId)
-			results.push({ id: sessionId, ok: true, removed: true })
+			// A live row stays in the Host's list until the process restarts; the
+			// stub keeps it, and the panel is expected to hide it locally.
+			if (!openOnDelete.includes(sessionId)) summaries = summaries.filter((item) => item.sessionId !== sessionId)
+			// `live` mirrors the host route's answer for a session it still held
+			// open in memory: trashed on disk, but the row lingers until restart.
+			results.push({ id: sessionId, ok: true, removed: true, ...(openOnDelete.includes(sessionId) ? { live: true } : {}) })
 		}
 		listState = buildState()
 		for (const fn of [...listListeners]) fn()
@@ -464,12 +468,12 @@ function makeWorkspaces({ pinned = [], archived = [] } = {}) {
 const flush = () => new Promise((resolve) => { setImmediate(resolve) })
 
 /** Mount the plugin and return everything a test needs to drive it. */
-function mount({ items = [], records, onCreate, shape, workspaces, trashEntries } = {}) {
+function mount({ items = [], records, onCreate, shape, workspaces, trashEntries, openOnDelete } = {}) {
 	const bundle = loadBundle()
 	const primitives = makePrimitives([])
 	const react = makeReact()
 	const { exports } = bundle.instantiate(primitives, react)
-	const sessions = makeSessions({ items, records, onCreate, shape, trashEntries })
+	const sessions = makeSessions({ items, records, onCreate, shape, trashEntries, openOnDelete })
 	const { ctx, registrations, dictionaries, effects } = makeCtx({ sessions, workspaces })
 	exports.apply(ctx)
 	const registration = registrations[0]
@@ -1068,6 +1072,47 @@ test('delete asks for confirmation, then re-pulls the list so the row leaves', a
 	assert.equal(world.sessions.calls.refreshed, 1, 'the deleted row must leave the list without a reload')
 	// The row is gone; the other one is untouched.
 	assert.deepEqual(listRows(world.renderPanelBody()).map(rowTitle), ['Beta'])
+})
+
+test('a running conversation is refused locally, by title, and never reaches the route', async () => {
+	const world = mount({
+		items: [
+			{ sessionId: 'busy', title: 'Busy', updatedAt: 30, running: true },
+			{ sessionId: 'idle', title: 'Idle', updatedAt: 20 }
+		]
+	})
+	world.renderPanelBody()
+	world.react.setterOf('MultiSelectPanel', 2)(new Set(['busy', 'idle']))
+	world.renderPanelBody().props.children[3].props.children[0].props.onClick() // arm the confirmation
+	world.renderPanelBody().props.children[2].props.children[1].props.children[0].props.onClick()
+	for (let tick = 0; tick < 6; tick += 1) await flush()
+
+	assert.deepEqual(world.sessions.calls.deleted, ['idle'], 'a running conversation is not sent')
+	const status = world.renderPanelBody().props.children.find((child) => child !== null && child !== undefined && child.props !== undefined && child.props['data-tone'] !== undefined)
+	assert.equal(status.props['data-tone'], 'error')
+	assert.match(String(status.props.children), /status\.deleteFailed/u)
+	assert.match(String(status.props.children), /「Busy」/u, 'the failure names the conversation by title')
+	assert.match(String(status.props.children), /会话正在运行/u, 'the reason explains why it was skipped')
+})
+
+test('a deleted conversation that DSH still holds open says when its row leaves', async () => {
+	const world = mount({
+		items: [{ sessionId: 'opened', title: 'Opened', updatedAt: 30 }],
+		openOnDelete: ['opened']
+	})
+	world.renderPanelBody()
+	world.react.setterOf('MultiSelectPanel', 2)(new Set(['opened']))
+	world.renderPanelBody().props.children[3].props.children[0].props.onClick()
+	world.renderPanelBody().props.children[2].props.children[1].props.children[0].props.onClick()
+	for (let tick = 0; tick < 6; tick += 1) await flush()
+
+	assert.deepEqual(world.sessions.calls.deleted, ['opened'])
+	const status = world.renderPanelBody().props.children.find((child) => child !== null && child !== undefined && child.props !== undefined && child.props['data-tone'] !== undefined)
+	assert.equal(status.props['data-tone'], 'info')
+	assert.match(String(status.props.children), /status\.deletedOpen/u)
+	// The Host keeps the live row in its list; the panel must hide it locally so
+	// the conversation does not look undeleted while the files are in the trash.
+	assert.deepEqual(listRows(world.renderPanelBody()), [], 'the deleted row is hidden until restart')
 })
 
 test('a selection larger than one route batch travels as sequential requests', async () => {

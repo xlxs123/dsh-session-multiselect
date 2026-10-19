@@ -3,6 +3,15 @@
 版本号与 [GitHub Releases](https://github.com/xlxs123/dsh-session-multiselect/releases) 同步。
 推送 `v*` tag 时由 `.github/workflows/release.yml` 校验版本、跑测试、并发布带版本无关 tarball 的 Release。
 
+## 0.5.1
+
+- 修复「打开中的对话删不掉」：区分**正在运行**与**打开过但空闲**——前者在客户端就拦下并写明原因
+  （文件正在写，插件无法卸载），后者带 `force-open=1` 正常移进回收站；路由回 `live: true`，
+  状态行提示"列表里的行会在重启 DSH 后消失"（文件已在回收站，可恢复）。
+- 删除「打开过但空闲」的对话后，面板本地隐藏该行（Host 列表在重启前仍持有它），`restore` 会解除隐藏——避免文件已进回收站、行却还在的错觉。
+- 失败列表改进：优先显示对话标题，没有标题时显示去掉 `session-` 前缀的短 id——以前只显示
+  前 8 个字符，而所有顶层 id 都以 `session-` 开头，失败列表等于什么都没说。
+- 测试 78 个；诊断 BUILD 27。
 ## 0.5.0
 
 - **删除改为回收站**：删除把会话目录连同投影缓存移进 `$DSH_HOME/trash/session-multiselect/`，

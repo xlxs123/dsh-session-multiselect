@@ -503,6 +503,26 @@ test('restore refuses to overwrite a conversation that took the id back', async 
   }
 })
 
+test('force-open trashes a conversation the host still holds and says so', async () => {
+  const { home, ids } = await makeHome()
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  try {
+    const plugin = await import(`${MODULE.href}?case=forceopen`)
+    const handler = mountRoute(plugin, { live: [ids.live] })
+    const { req, res } = fakeExchange('GET', [ids.live], '/session-multiselect/delete', { 'force-open': '1' })
+    await handler(req, res)
+    assert.equal(res.status, 200)
+    assert.equal(res.payload.removed, 1)
+    assert.equal(res.payload.results[0].ok, true)
+    assert.equal(res.payload.results[0].live, true, 'the caller is told the row survives in memory')
+    assert.equal((await readdir(trashRootOf(home))).length, 1, 'the files are in the trash')
+  } finally {
+    process.env.DSH_HOME = previous
+    await rm(home, { recursive: true, force: true })
+  }
+})
+
 test('trash entries older than the retention window are purged', async () => {
   const { home, ids } = await makeHome()
   const previous = process.env.DSH_HOME
