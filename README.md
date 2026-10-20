@@ -258,7 +258,8 @@ cd dsh-session-multiselect
 dsh plugin --profile desktop add .     # 路径含空格时务必在包目录内执行 `add .`
 ```
 
-> 市场收录（awesome-dsh-plugin 注册表）还在等维护者合并；合并后也可以直接在 dshmarket 里搜索安装。
+> **已上架 DSH 插件市场**（awesome-dsh-plugin 注册表 / dshmarket）：市场里搜索 `dsh-session-multiselect` 安装，
+> 或直接打开 https://awesome-dsh-plugin.com/p/xlxs123/dsh-session-multiselect/ 。
 > npm 尚未发布，发布后 `dsh plugin --profile desktop add dsh-session-multiselect` 即可。
 
 **profile 名要对上正在用的那一个** —— 这是最容易踩的一脚：`$DSH_HOME/profiles/<名字>` 里没装这个插件，
