@@ -2,18 +2,26 @@
 
 [![test](https://github.com/xlxs123/dsh-session-multiselect/actions/workflows/test.yml/badge.svg)](https://github.com/xlxs123/dsh-session-multiselect/actions/workflows/test.yml)
 [![release](https://img.shields.io/github/v/release/xlxs123/dsh-session-multiselect?label=release)](https://github.com/xlxs123/dsh-session-multiselect/releases)
+[![market](https://img.shields.io/badge/DSH%20%E6%8F%92%E4%BB%B6%E5%B8%82%E5%9C%BA-%E5%B7%B2%E4%B8%8A%E6%9E%B6-4d6bfe.svg)](https://awesome-dsh-plugin.com/p/xlxs123/dsh-session-multiselect/)
+[![bilibili](https://img.shields.io/badge/B%E7%AB%99-99%20%E7%A7%92%E5%8A%9F%E8%83%BD%E6%BC%94%E7%A4%BA-00A1D6.svg)](https://www.bilibili.com/video/BV1csaJ66EQF/)
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![node](https://img.shields.io/badge/node-%E2%89%A520-brightgreen.svg)](#开发)
 [![DSH Desktop](https://img.shields.io/badge/DSH%20Desktop-0.9.0%20%7C%200.10.0-black.svg)](#dsh-session-multiselect)
 
-DSH Web 客户端的**对话多选插件**：一次勾选多个对话，然后批量删除、归档或置顶。
-点会话列表左上角的入口按钮，弹出面板 —— 可按工作区分组、可搜索、可 Shift 范围选择、可整组勾选。
+DSH Web 客户端的**对话多选插件**：一次勾选多个对话，批量删除、恢复、归档或置顶。
+点会话列表搜索框左侧的入口按钮弹出面板 —— 可搜索、按工作区/日期分组、快捷筛选、Shift 范围选择、
+整组勾选、键盘操作；删掉的对话先进**回收站**（7 天内可恢复），也能永久删除或清空。
 
-> **Multi-select for DSH Desktop conversations.** One click on the button beside the session list's
-> search icon opens a searchable, workspace-grouped panel; batch actions are delete, archive and pin,
-> over the official `session.delete` contract and the workspace controller's archive/pin commands.
-> Install as a standard DSH bundle: `dsh plugin --profile desktop add .`
-> (see [安装](#安装)). No build step, no host-side code, MIT licensed.
+> **Multi-select for DSH conversations.** One click on the button beside the session list's
+> search icon opens a searchable, workspace/date-grouped panel; batch actions are delete (into a
+> 7-day restorable trash), restore, archive and pin. Deleting runs through this plugin's own Node
+> half (`GET /session-multiselect/delete`), because the Web client exposes no session-delete API on
+> this build. Install as a standard DSH bundle: `dsh plugin --profile desktop add .` (see
+> [安装](#安装)). No build step, MIT licensed.
+
+**已上架 DSH 插件市场**（dshmarket 里搜索 `dsh-session-multiselect`）：
+[市场页](https://awesome-dsh-plugin.com/p/xlxs123/dsh-session-multiselect/) ·
+**99 秒完整功能演示**：[B 站视频](https://www.bilibili.com/video/BV1csaJ66EQF/)
 
 **入口与做法**：DSH 原生侧边栏的会话列表由 `@deepseek-ai/dsh-client-ui-workspace` 以 `single` slot 独占渲染，
 **没有提供逐行的扩展 slot**，所以入口是 DOM 注入：
